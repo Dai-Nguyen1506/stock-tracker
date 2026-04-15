@@ -2,3 +2,5 @@
 venv
 
 api.txt
+
+util/__pycache__/
