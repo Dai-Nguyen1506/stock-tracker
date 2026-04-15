@@ -1,6 +1,8 @@
 .venv
 venv
 
-api.txt
+.env
+.env.*
+!.env.example
 
 util/__pycache__/
