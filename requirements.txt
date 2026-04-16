@@ -1,0 +1,7 @@
+finnhub-python
+pandas
+requests
+python-dotenv
+jupyter
+ipykernel
+matplotlib
