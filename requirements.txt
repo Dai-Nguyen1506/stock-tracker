@@ -5,3 +5,5 @@ python-dotenv
 jupyter
 ipykernel
 matplotlib
+websockets
+asyncio
