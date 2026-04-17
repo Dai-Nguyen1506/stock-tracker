@@ -1,1 +1,1 @@
-# Explore Finhub Stock
+# Explore TWELVEDATA STOCK

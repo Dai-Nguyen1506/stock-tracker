@@ -1,4 +1,4 @@
-finnhub-python
+twelvedata
 pandas
 requests
 python-dotenv
