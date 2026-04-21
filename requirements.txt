@@ -1,4 +1,3 @@
-finnhub-python
 pandas
 requests
 python-dotenv

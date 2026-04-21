@@ -10,10 +10,10 @@ load_dotenv(BASE_DIR / '.env')
 
 class Config:
     """Cấu hình chung cho ứng dụng"""
-    FINNHUB_API_KEY = os.getenv('FINNHUB_API_KEY')
+    BINANCE_API_KEY = os.getenv('BINANCE_API_KEY')
 
     @classmethod
     def validate(cls):
         """Kiểm tra xem các cấu hình quan trọng đã có chưa"""
-        if not cls.FINNHUB_API_KEY:
-            raise ValueError("❌ FINNHUB_API_KEY không tồn tại trong file .env")
+        if not cls.BINANCE_API_KEY:
+            raise ValueError("❌ BINANCE_API_KEY không tồn tại trong file .env")
