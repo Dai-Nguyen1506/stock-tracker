@@ -3,3 +3,5 @@ newspaper3k
 lxml_html_clean
 pandas
 python-dotenv
+jupyter
+ipykernel

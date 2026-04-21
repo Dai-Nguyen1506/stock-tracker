@@ -5,4 +5,4 @@ venv
 .env.*
 !.env.example
 
-util/__pycache__/
+__pycache__/
