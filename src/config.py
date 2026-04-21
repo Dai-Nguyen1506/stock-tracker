@@ -10,10 +10,13 @@ load_dotenv(BASE_DIR / '.env')
 
 class Config:
     """Cấu hình chung cho ứng dụng"""
-    FINNHUB_API_KEY = os.getenv('FINNHUB_API_KEY')
+    APCA_API_KEY_ID = os.getenv('APCA_API_KEY_ID')
+    APCA_API_SECRET_KEY = os.getenv('APCA_API_SECRET_KEY')
 
     @classmethod
     def validate(cls):
         """Kiểm tra xem các cấu hình quan trọng đã có chưa"""
-        if not cls.FINNHUB_API_KEY:
-            raise ValueError("❌ FINNHUB_API_KEY không tồn tại trong file .env")
+        if not cls.APCA_API_KEY_ID:
+            raise ValueError("❌ APCA_API_KEY_ID không tồn tại trong file .env")
+        if not cls.APCA_API_SECRET_KEY:
+            raise ValueError("❌ APCA_API_SECRET_KEY không tồn tại trong file .env")
