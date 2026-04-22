@@ -4,6 +4,7 @@ import logging
 from datetime import datetime, timezone
 import websockets
 from core.cassandra import get_session
+from core.redis_client import init_redis, get_redis
 
 ALPACA_WS_URL = "wss://stream.data.alpaca.markets/v1beta1/news"
 _prepared_news_stmt = None
@@ -39,6 +40,21 @@ async def process_news_message(session, message_list):
                 bound.bind_list([symbol, date_bucket, ts_ms, headline, summary, url, sentiment])
                 
                 await session.execute(bound)
+                
+                # Bắn News Real-time qua Redis Pub/Sub
+                try:
+                    redis_client = get_redis()
+                    payload = json.dumps({
+                        "type": "news",
+                        "symbol": symbol,
+                        "headline": headline,
+                        "url": url,
+                        "timestamp": ts_ms
+                    })
+                    await redis_client.publish("live:news", payload)
+                except Exception as e:
+                    print(f"Lỗi Redis PubSub: {e}")
+                    
                 print(f"📰 Bắt được tin tức: {symbol} - {headline}")
                 
                 asyncio.create_task(push_to_ai_vector_embedder(symbol, headline, summary))
@@ -88,11 +104,12 @@ if __name__ == "__main__":
     API_KEY = os.getenv("ALPACA_API_KEY_ID", "")
     SECRET_KEY = os.getenv("ALPACA_API_SECRET_KEY", "")
     
-    loop = asyncio.get_event_loop()
+async def main():
+    await init_redis()
     
     # Chạy Discovery để lấy mảng priority (Crypto có ở cả Binance và Alpaca)
     # Theo chuẩn Alpaca News stream, symbol yêu cầu dạng Base (ví dụ: BTC, ETH) chứ không phải dạng Trading pair (BTC/USD)
-    discovery_data = loop.run_until_complete(run_discovery_bootstrap())
+    discovery_data = await run_discovery_bootstrap()
     alpaca_crypto_symbols = [item["base"] for item in discovery_data["priority_list"]]
     
     # Thêm một vài mã chứng khoán mỹ cực Hot để dễ dàng test xem Stream có bắt tin nhắn không
@@ -104,7 +121,22 @@ if __name__ == "__main__":
     
     while True:
         try:
-            loop.run_until_complete(run_news_stream(API_KEY, SECRET_KEY, target_symbols))
+            await run_news_stream(API_KEY, SECRET_KEY, target_symbols)
             print("Restarting Alpaca News Stream...")
-        except KeyboardInterrupt:
-            break
+            await asyncio.sleep(5)
+        except Exception as e:
+            print(f"Mất kết nối: {e}")
+            await asyncio.sleep(5)
+
+if __name__ == "__main__":
+    import os
+    from ingestion.discovery import run_discovery_bootstrap
+    
+    API_KEY = os.getenv("ALPACA_API_KEY_ID", "")
+    SECRET_KEY = os.getenv("ALPACA_API_SECRET_KEY", "")
+    
+    loop = asyncio.get_event_loop()
+    try:
+        loop.run_until_complete(main())
+    except KeyboardInterrupt:
+        print("\nĐã dừng tiến trình!")

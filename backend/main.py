@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from contextlib import asynccontextmanager
-from core.cassandra import get_session, close_session
-from routers import stocks, crypto
+from routers import stocks, crypto, market
+from core.redis_client import init_redis, close_redis
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -9,10 +9,17 @@ async def lifespan(app: FastAPI):
     print("🚀 Connecting to Cassandra...")
     await get_session()
     print("✅ Cassandra connected!")
+    
+    print("🚀 Connecting to Redis...")
+    await init_redis()
+    print("✅ Redis connected!")
+    
     yield
     # ── Shutdown ──
     print("🛑 Closing Cassandra connection...")
     await close_session()
+    print("🛑 Closing Redis connection...")
+    await close_redis()
 
 app = FastAPI(
     title="Stock Tracker API",
@@ -22,6 +29,8 @@ app = FastAPI(
 
 app.include_router(stocks.router, prefix="/api/v1/stocks", tags=["Stocks"])
 app.include_router(crypto.router, prefix="/api/v1/crypto", tags=["Crypto"])
+app.include_router(market.router, prefix="/api/v1/market", tags=["Market"])
+app.include_router(market.ws_router, prefix="/ws", tags=["WebSockets"])
 
 @app.get("/health")
 async def health_check():

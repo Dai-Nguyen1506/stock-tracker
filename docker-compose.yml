@@ -77,6 +77,7 @@ services:
       CASSANDRA_HOST: cassandra   # Tên service = hostname trong Docker network
       APP_ENV: production
       UVICORN_WORKERS: "2"
+      REDIS_URL: redis://redis:6379/0
     volumes:
       - ./backend:/app
     depends_on:

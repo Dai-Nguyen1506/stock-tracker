@@ -4,6 +4,7 @@ import time
 from datetime import datetime, timezone
 import websockets
 from core.cassandra import get_session
+from core.redis_client import init_redis, get_redis
 
 BINANCE_WS_URL = "wss://stream.binance.com:9443/stream"
 
@@ -25,7 +26,7 @@ async def init_prepared_statements(session):
 current_candles = {}
 
 async def flush_kline_to_db(session, kline_data):
-    """Lưu nến 1p đã hoàn tất (đóng nến) xuống Cassandra"""
+    """Lưu nến 1p đã hoàn tất (đóng nến) xuống Cassandra và Bắn lên Redis"""
     try:
         symbol = kline_data['symbol']
         interval = "1m"
@@ -44,6 +45,21 @@ async def flush_kline_to_db(session, kline_data):
         ])
         
         await session.execute(bound)
+        
+        # Bắn real-time cho Frontend qua Redis Pub/Sub
+        try:
+            redis_client = get_redis()
+            payload = json.dumps({
+                "type": "kline",
+                "symbol": symbol,
+                "interval": interval,
+                "timestamp": int(kline_data['start_time']),
+                "close": fmt(kline_data['close'])
+            })
+            await redis_client.publish("live:klines", payload)
+        except Exception as redis_e:
+            print(f"Lỗi Redis PubSub: {redis_e}")
+            
         print(f"📊 [Kline] Đã đóng nến 1m cho {symbol}: Chốt Close={fmt(kline_data['close'])}")
     except Exception as e:
         print(f"Error flushing kline: {e}")
@@ -174,11 +190,15 @@ async def run_binance_combined_stream(symbols):
 
 if __name__ == "__main__":
     from ingestion.discovery import run_discovery_bootstrap
+    
+    async def main():
+        await init_redis()
+        discovery_data = await run_discovery_bootstrap()
+        symbols_for_binance = [item["binance"].upper() for item in discovery_data["priority_list"] + discovery_data["remainder_list"]]
+        await run_binance_combined_stream(symbols_for_binance)
+        
     loop = asyncio.get_event_loop()
-    
-    discovery_data = loop.run_until_complete(run_discovery_bootstrap())
-    
-    # Chỉ băm vài mã test (5 mã) để tránh ngập Database trên test, tuỳ bạn mở bao nhiêu mã.
-    symbols_for_binance = [item["binance"].upper() for item in discovery_data["priority_list"] + discovery_data["remainder_list"]]
-    
-    loop.run_until_complete(run_binance_combined_stream(symbols_for_binance))
+    try:
+        loop.run_until_complete(main())
+    except KeyboardInterrupt:
+        print("Đã dừng tiến trình!")
