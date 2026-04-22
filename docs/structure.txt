@@ -46,44 +46,59 @@
  │   Price) để tư vấn  │ - Biến động theo giây          │   Tốc độ ghi/đọc  │
  └─────────────────────┴────────────────────────────────┴───────────────────┘
 
-Bước 1: Khởi động (Real-time Demo)
+TỔNG QUAN KIẾN TRÚC HỆ THỐNG
+Hệ thống được xây dựng trên mô hình Event-Driven Architecture (Kiến trúc hướng sự kiện) để đảm bảo tính thời gian thực cao nhất.
 
-Mở trang web, chọn mã BTC/USD.
+CHI TIẾT 5 GIAI ĐOẠN XỬ LÝ
+Giai đoạn 1: Bootstrap & Dynamic Discovery (Khởi động hệ thống)
+Đây là bước "Làm sạch và Đồng bộ" danh sách mã giao dịch (Symbols).
 
-App tự động lấy 1000 nến gần nhất (khoảng chưa tới 1 ngày) để vẽ biểu đồ cho mượt.
+Fetch Assets: Gọi API GET /assets từ Alpaca và GET /exchangeInfo từ Binance.
 
-WebSocket kết nối: Biểu đồ nến bắt đầu giật giật (nhảy giá thực).
+Filter & Map:
 
-Biểu đồ Depth ở dưới hiện ra hai ngọn núi Xanh/Đỏ đập vào nhau liên tục.
+Lấy giao điểm (Intersection) để tạo Priority_List (Những mã có cả News và Price).
 
-Bạn giải thích với thầy: "Dữ liệu Depth rất nặng, em đã cài đặt cơ chế TTL trong Cassandra để chỉ giữ 5 phút, tối ưu hóa RAM và Storage cho hệ thống".
+Lấy phần còn lại của Binance làm Remainder_List.
 
-Bước 2: Xử lý khoảng trống (Data Gap)
+Chuyển đổi định dạng: btcusdt (Binance) ↔ BTC (Alpaca News) ↔ BTC/USD (Alpaca Trade).
 
-Trong lúc nối giữa nến cũ và WebSocket mới, hàm filter ở Frontend gạt bỏ các nến trùng timestamp, đảm bảo đồ thị chạy liền mạch không bị đứt đoạn.
+Cache: Lưu danh sách đã xử lý vào bộ nhớ (Global variable/Redis) để các module khác sử dụng.
 
-Bước 3: Demo Stress Test (Bài tập thầy giao)
+Giai đoạn 2: Real-time Ingestion (Thu thập dữ liệu thực)
+Sau khi khởi động, hệ thống mở đồng thời 3 luồng kết nối:
 
-Bạn chuyển sang cột 3, mục Stress Tester.
+Luồng 1 (Binance WS - Trades): Nhận từng lệnh khớp (Trades). Backend thực hiện Aggregator để gom các trade thành nến 1 phút (OHLCV). Ghi vào Cassandra bảng klines.
 
-Nhập mã ETH/USD, chọn 30 ngày, bấm Chạy Test.
+Luồng 2 (Binance WS - Depth): Nhận dữ liệu Sổ lệnh (Order Book). Ghi vào Cassandra bảng depth với lệnh USING TTL 300 (Xóa sau 5 phút).
 
-Backend bắt đầu chạy hết công suất: Kéo API, nhồi dữ liệu vào Cassandra.
+Luồng 3 (Alpaca WS - News): Nhận tin tức mới nhất. Ghi vào bảng news.
 
-Một lát sau, bảng thông báo hiện lên:
+Giai đoạn 3: Frontend & WebSocket Server (Giao diện người dùng)
+Kết nối: Web UI kết nối với FastAPI qua WebSocket riêng của bạn.
 
-Trạng thái: Thành công
+Data Push: Backend đẩy đồng thời: Nến mới, dữ liệu Depth Chart, và News mới lên UI.
 
-Tổng số record: 43,200 nến
+News: Kiểm tra tin tức quá khứ, từ hiện tại đến news mới nhất trong cassandra để cập nhật từ api và ghi tiếp vào cassandra
 
-Thời gian Ghi (Cassandra Insert): 2.5 giây.
+Stitch Logic (Khâu dữ liệu): UI nhận nến cũ từ DB và nến mới từ WS, thực hiện ghi đè nến có cùng timestamp để biểu đồ không bị nhảy hoặc trống.
 
-Thời gian Đọc (Cassandra Select 30 days): 0.3 giây.
+Giai đoạn 4: Historical & Stress Test (Xử lý quá khứ & Kiểm thử)
+Đây là phần phục vụ yêu cầu của giảng viên:
 
-Bạn giải thích: "Đây là module em viết riêng để test giới hạn của Cassandra với khối lượng dữ liệu lớn của 30 ngày theo đúng yêu cầu đề bài".
+Lazy Loading: Khi người dùng kéo biểu đồ sang trái, UI gửi request GET /history.
 
-Bước 4: Trải nghiệm AI
+Logic "Check-First":
 
-Bạn gõ vào Chatbot ở góc trái: "Tin tức ETH hôm nay thế nào?"
+Backend kiểm tra Cassandra. Nếu có -> Trả về kết quả + Label: "Read from DB".
 
-AI lấy News từ DB (hoặc luồng stream), ráp vào prompt và trả lời.
+Nếu không -> Gọi REST API Binance -> Ghi vào Cassandra -> Trả về kết quả + Label: "Write & Backfill".
+
+Stress Test Module: Một chức năng riêng để kéo 30 ngày dữ liệu (43,200 nến), đo đạc hiệu năng Write/Read của Cassandra Docker và xuất báo cáo.
+
+Giai đoạn 5: RAG & AI Assistant (Trí tuệ nhân tạo)
+VectorDB: Sử dụng ChromaDB hoặc một vector database tốt hơn để lưu trữ vector embedding của tin tức và giá, ... để chatbot đọc hiểu. News sẽ được cập nhật đồng bộ song song với bảng news trong cassandra
+
+Context Retrieval: Khi người dùng hỏi chatbot, hệ thống sẽ thực hiện truy vấn ngược vào bảng news và klines dựa trên khoảng thời gian và symbol đang xem.
+
+Prompting: Đưa dữ liệu thô vào LLM để giải thích biến động thị trường.

@@ -1,30 +1,29 @@
 # --- Web Framework & Server ---
 fastapi==0.110.0
 uvicorn[standard]==0.27.1
-# python-multipart==0.0.9
+websockets>=11.0.3,<12.0.0
 
 # --- Databases (The Core) ---
 # Acsylla 1.0.2 là bản ổn định nhất hiện tại, tránh lỗi build 0.3.2
 acsylla==1.0.2
-# Cần thiết để thao tác với dữ liệu nến trước khi ghi vào Cassandra
-# pandas==2.2.1
+redis==5.0.3
+
+# Cần thiết để thao tác với dữ liệu
+pandas==2.2.1
 
 # --- Financial Data Sources ---
-vnstock3==0.3.0
 python-binance==1.0.19
+alpaca-py==0.17.0
 # Thư viện HTTP hiện đại hỗ trợ Async hoàn hảo cho FastAPI
 httpx==0.27.0
 
-# # --- AI & RAG Ready (Giai đoạn sau) ---
-# # Thư viện embedding và kết nối VectorDB (dùng Qdrant làm ví dụ)
-# qdrant-client==1.8.0
-# # Langchain để xâu chuỗi logic RAG
-# langchain==0.1.12
-# langchain-community==0.0.28
-# openai==1.14.0
+# --- AI & RAG Ready ---
+chromadb==0.4.24
+sentence-transformers==2.5.1
+# google-generativeai==0.4.1 # Cho Gemini API sau này
+# groq==0.4.2 # Cho Groq cực nhanh sau này
 
 # --- Utilities ---
 python-dotenv==1.0.1
 pydantic-settings==2.2.1
-# Loguru giúp bạn debug các lỗi khi worker cào dữ liệu bị crash
-# loguru==0.7.2
+loguru==0.7.2
