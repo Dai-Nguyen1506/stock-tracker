@@ -1,0 +1,89 @@
+=============================================================================
+                       [ HỆ THỐNG EXTERNAL API ]
+      (Binance REST API)    (Binance WebSocket)       (Alpaca WebSocket)
+      - Lấy nến quá khứ    - Lấy giá/trade/depth     - Lấy News + API quá khứ
+=============================================================================
+                                  │
+                                  ▼
+=============================================================================
+                    [ BACKEND LAYER (FastAPI / Python) ]
+
+ 1. DATA INGESTION (Luồng Real-time):
+    ├─ Binance WS ──> Tính Nến (K-lines) ──────┐
+    ├─ Binance WS ──> Lấy Depth ───────────────┼──> Đẩy qua WS Server của bạn
+    └─ Alpaca WS  ──> Lấy News (JSON) ─────────┘
+
+ 2. DATABASE LAYER (Cassandra):
+    ├─ Bảng `klines` (Primary Key: symbol, timestamp)
+    ├─ Bảng `news`   (Primary Key: symbol, timestamp)
+    └─ Bảng `depth`  (Sử dụng TTL = 24h để tự động xóa)
+
+ 3. API SERVICE (Luồng On-Demand):
+    └─ API `/history`: Xử lý Logic "Đọc/Ghi" thông minh
+       ├─ Kéo UI sang trái -> Gọi `/history`
+       ├─ Cache Hit (Có trong DB) -> Đọc DB -> UI
+       └─ Cache Miss (Không có) -> Kéo Binance -> Ghi DB -> Đọc DB -> UI
+=============================================================================
+                                  │
+      (HTTP REST API cho Lịch sử) │ (WebSocket cho Real-time)
+                                  ▼
+=============================================================================
+                         [ FRONTEND LAYER (WEB UI) ]
+
+ ┌─────────────────────┬────────────────────────────────┬───────────────────┐
+ │ CỘT 1: INSIGHTS     │ CỘT 2: TRADING DASHBOARD       │ CỘT 3: CONTROL    │
+ │                     │                                │                   │
+ │ [ TIN TỨC REALTIME ]│ [ BIỂU ĐỒ NẾN (CANDLESTICK) ]  │ [ WATCHLIST ]     │
+ │ - Tự nhảy khi có    │ - Khởi tạo: Load 500 nến       │ - Top Priority    │
+ │   tin từ Alpaca     │ - Kéo trái: Auto-load + Hiện   │ - All Binance     │
+ │ - Lọc theo Symbol   │   tốc độ Read/Write DB         │                   │
+ │                     │ - Khớp nối liền mạch WS        │                   │
+ │                     │                                │                   │
+ │                     ├────────────────────────────────┤                   │
+ │ [ AI CHATBOT ]      │ [ MARKET DEPTH CHART ]         │ [ DB DASHBOARD ]  │
+ │ - RAG kết hợp với   │ - Vẽ 2 sườn đồi Xanh/Đỏ từ     │ - Chọn Interval   │
+ │   Cassandra (News/  │   dữ liệu Depth (UI real-time) │ - Thống kê DB:    │
+ │   Price) để tư vấn  │ - Biến động theo giây          │   Tốc độ ghi/đọc  │
+ └─────────────────────┴────────────────────────────────┴───────────────────┘
+
+Bước 1: Khởi động (Real-time Demo)
+
+Mở trang web, chọn mã BTC/USD.
+
+App tự động lấy 1000 nến gần nhất (khoảng chưa tới 1 ngày) để vẽ biểu đồ cho mượt.
+
+WebSocket kết nối: Biểu đồ nến bắt đầu giật giật (nhảy giá thực).
+
+Biểu đồ Depth ở dưới hiện ra hai ngọn núi Xanh/Đỏ đập vào nhau liên tục.
+
+Bạn giải thích với thầy: "Dữ liệu Depth rất nặng, em đã cài đặt cơ chế TTL trong Cassandra để chỉ giữ 5 phút, tối ưu hóa RAM và Storage cho hệ thống".
+
+Bước 2: Xử lý khoảng trống (Data Gap)
+
+Trong lúc nối giữa nến cũ và WebSocket mới, hàm filter ở Frontend gạt bỏ các nến trùng timestamp, đảm bảo đồ thị chạy liền mạch không bị đứt đoạn.
+
+Bước 3: Demo Stress Test (Bài tập thầy giao)
+
+Bạn chuyển sang cột 3, mục Stress Tester.
+
+Nhập mã ETH/USD, chọn 30 ngày, bấm Chạy Test.
+
+Backend bắt đầu chạy hết công suất: Kéo API, nhồi dữ liệu vào Cassandra.
+
+Một lát sau, bảng thông báo hiện lên:
+
+Trạng thái: Thành công
+
+Tổng số record: 43,200 nến
+
+Thời gian Ghi (Cassandra Insert): 2.5 giây.
+
+Thời gian Đọc (Cassandra Select 30 days): 0.3 giây.
+
+Bạn giải thích: "Đây là module em viết riêng để test giới hạn của Cassandra với khối lượng dữ liệu lớn của 30 ngày theo đúng yêu cầu đề bài".
+
+Bước 4: Trải nghiệm AI
+
+Bạn gõ vào Chatbot ở góc trái: "Tin tức ETH hôm nay thế nào?"
+
+AI lấy News từ DB (hoặc luồng stream), ráp vào prompt và trả lời.
