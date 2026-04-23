@@ -164,73 +164,81 @@ async def get_stats():
         "peak_write_per_s": int(peak_write) if peak_write else 0
     }
 
+from typing import Optional
+
 class PingTestRequest(BaseModel):
     symbol: str
     interval: str
     limit: int = 100
-    start_date: str = None
-    end_date: str = None
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
 
 # ── REST API: Ping Cassandra (Test) ──
 @router.post("/test/ping")
 async def test_ping(request: PingTestRequest):
-    import httpx
-    import time
-    session = await get_session()
-    
-    if request.start_date and request.end_date:
-        start_ts = int(datetime.strptime(request.start_date, "%Y-%m-%d").replace(tzinfo=timezone.utc).timestamp() * 1000)
-        end_ts = int(datetime.strptime(request.end_date, "%Y-%m-%d").replace(tzinfo=timezone.utc).timestamp() * 1000)
+    try:
+        import httpx
+        import time
+        from datetime import datetime, timezone
+        import asyncio
+        session = await get_session()
         
-        all_klines = []
-        current_start = start_ts
-        async with httpx.AsyncClient() as client:
-            while current_start < end_ts:
-                url = f"https://api.binance.com/api/v3/klines?symbol={request.symbol}&interval={request.interval}&startTime={current_start}&endTime={end_ts}&limit=1000"
-                res = await client.get(url)
-                if res.status_code != 200:
-                    break
-                data = res.json()
-                if not data:
-                    break
-                all_klines.extend(data)
-                current_start = int(data[-1][0]) + 1
-                await asyncio.sleep(0.1)
+        if request.start_date and request.end_date:
+            start_ts = int(datetime.strptime(request.start_date, "%Y-%m-%d").replace(tzinfo=timezone.utc).timestamp() * 1000)
+            end_ts = int(datetime.strptime(request.end_date, "%Y-%m-%d").replace(tzinfo=timezone.utc).timestamp() * 1000)
+            
+            all_klines = []
+            current_start = start_ts
+            async with httpx.AsyncClient() as client:
+                while current_start < end_ts:
+                    url = f"https://api.binance.com/api/v3/klines?symbol={request.symbol}&interval={request.interval}&startTime={current_start}&endTime={end_ts}&limit=1000"
+                    res = await client.get(url)
+                    if res.status_code != 200:
+                        break
+                    data = res.json()
+                    if not data:
+                        break
+                    all_klines.extend(data)
+                    current_start = int(data[-1][0]) + 1
+                    await asyncio.sleep(0.1)
 
-        stmt = await session.create_prepared("INSERT INTO market_data.klines (symbol, interval, date_bucket, timestamp, open, high, low, close, volume) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
-        def fmt(val): return f"{float(val):.10f}".rstrip('0').rstrip('.') if '.' in f"{float(val):.10f}" else f"{float(val):.10f}"
-        
-        t0 = time.time()
-        for k in all_klines:
-            ts = int(k[0])
-            dt = datetime.fromtimestamp(ts/1000.0, timezone.utc)
+            stmt = await session.create_prepared("INSERT INTO market_data.klines (symbol, interval, date_bucket, timestamp, open, high, low, close, volume) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+            def fmt(val): return f"{float(val):.10f}".rstrip('0').rstrip('.') if '.' in f"{float(val):.10f}" else f"{float(val):.10f}"
+            
+            t0 = time.time()
+            for k in all_klines:
+                ts = int(k[0])
+                dt = datetime.fromtimestamp(ts/1000.0, timezone.utc)
+                bound = stmt.bind()
+                bound.bind_list([
+                    request.symbol, request.interval, dt.strftime("%Y-%m-%d"), ts,
+                    fmt(k[1]), fmt(k[2]), fmt(k[3]), fmt(k[4]), fmt(k[5])
+                ])
+                await session.execute(bound)
+            t1 = time.time()
+            
+            return {
+                "read_ms": 0,
+                "write_ms": int((t1 - t0) * 1000),
+                "rows": len(all_klines)
+            }
+        else:
+            # Dummy Ping nếu không truyền Start/End Date
+            t0 = time.time()
+            stmt = await session.create_prepared("INSERT INTO market_data.news (symbol, date_bucket, timestamp, headline, summary, url) VALUES (?, ?, ?, ?, ?, ?)")
             bound = stmt.bind()
-            bound.bind_list([
-                request.symbol, request.interval, dt.strftime("%Y-%m-%d"), ts,
-                fmt(k[1]), fmt(k[2]), fmt(k[3]), fmt(k[4]), fmt(k[5])
-            ])
+            bound.bind_list(["TEST", "2099-01-01", int(time.time()*1000), "ping test", "", ""])
             await session.execute(bound)
-        t1 = time.time()
-        
-        return {
-            "read_ms": 0,
-            "write_ms": int((t1 - t0) * 1000),
-            "rows": len(all_klines)
-        }
-    else:
-        # Dummy Ping nếu không truyền Start/End Date
-        t0 = time.time()
-        stmt = await session.create_prepared("INSERT INTO market_data.news (symbol, date_bucket, timestamp, headline, summary, url) VALUES (?, ?, ?, ?, ?, ?)")
-        bound = stmt.bind()
-        bound.bind_list(["TEST", "2099-01-01", int(time.time()*1000), "ping test", "", ""])
-        await session.execute(bound)
-        t1 = time.time()
-        
-        return {
-            "read_ms": 0,
-            "write_ms": int((t1 - t0) * 1000),
-            "rows": 1
-        }
+            t1 = time.time()
+            
+            return {
+                "read_ms": 0,
+                "write_ms": int((t1 - t0) * 1000),
+                "rows": 1
+            }
+    except Exception as e:
+        import traceback
+        return {"error": str(e), "trace": traceback.format_exc()}
 
 
 # ── WebSockets: Live Streaming cho Frontend ──

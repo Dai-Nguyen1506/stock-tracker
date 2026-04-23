@@ -136,23 +136,23 @@ export const DepthChart: React.FC<DepthChartProps> = ({ selectedSymbol }) => {
       </div>
 
       {/* System Metrics Dashboard */}
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '8px', overflowY: 'auto', minHeight: 0, paddingRight: '4px' }}>
-        <div style={{ background: 'rgba(255,255,255,0.03)', padding: '12px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.05)', flexShrink: 0 }}>
-          <div style={{ fontSize: '11px', color: '#a1a1aa', marginBottom: '4px' }}>Symbol Ingest Rate ({selectedSymbol})</div>
-          <div style={{ fontSize: '18px', fontWeight: '700', color: '#3b82f6' }}>{ingestRate} <span style={{ fontSize: '11px', fontWeight: 'normal', color: '#52525b' }}>msg/s</span></div>
+      <div style={{ flex: 1, display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '8px', overflowY: 'auto', minHeight: 0, paddingRight: '4px' }}>
+        <div style={{ background: 'rgba(255,255,255,0.03)', padding: '10px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.05)', flexShrink: 0 }}>
+          <div style={{ fontSize: '10px', color: '#a1a1aa', marginBottom: '4px' }}>Sys Ingest ({selectedSymbol})</div>
+          <div style={{ fontSize: '16px', fontWeight: '700', color: '#3b82f6' }}>{ingestRate} <span style={{ fontSize: '10px', fontWeight: 'normal', color: '#52525b' }}>msg/s</span></div>
         </div>
 
-        <div style={{ background: 'rgba(255,255,255,0.03)', padding: '12px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.05)' }}>
-          <div style={{ fontSize: '11px', color: '#a1a1aa', marginBottom: '4px' }}>Global Ingest Rate (All Symbols)</div>
-          <div style={{ fontSize: '18px', fontWeight: '700', color: '#8b5cf6' }}>{globalIngest} <span style={{ fontSize: '11px', fontWeight: 'normal', color: '#52525b' }}>msg/s</span></div>
+        <div style={{ background: 'rgba(255,255,255,0.03)', padding: '10px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.05)', flexShrink: 0 }}>
+          <div style={{ fontSize: '10px', color: '#a1a1aa', marginBottom: '4px' }}>Global Ingest (All)</div>
+          <div style={{ fontSize: '16px', fontWeight: '700', color: '#8b5cf6' }}>{globalIngest} <span style={{ fontSize: '10px', fontWeight: 'normal', color: '#52525b' }}>msg/s</span></div>
         </div>
 
-        <div style={{ background: 'rgba(16,185,129,0.05)', padding: '12px', borderRadius: '8px', border: '1px solid rgba(16,185,129,0.15)', flexShrink: 0 }}>
+        <div style={{ gridColumn: '1 / -1', background: 'rgba(16,185,129,0.05)', padding: '10px', borderRadius: '8px', border: '1px solid rgba(16,185,129,0.15)', flexShrink: 0 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-            <span style={{ fontSize: '11px', color: '#10b981' }}>Cassandra Write Speed</span>
-            <span style={{ fontSize: '9px', background: 'rgba(16,185,129,0.2)', color: '#10b981', padding: '2px 6px', borderRadius: '10px' }}>Disk I/O</span>
+            <span style={{ fontSize: '10px', color: '#10b981' }}>Cassandra Write Speed</span>
+            <span style={{ fontSize: '8px', background: 'rgba(16,185,129,0.2)', color: '#10b981', padding: '2px 6px', borderRadius: '10px' }}>Disk I/O</span>
           </div>
-          <div style={{ fontSize: '18px', fontWeight: '700', color: '#10b981' }}>{writeSpeed} <span style={{ fontSize: '11px', fontWeight: 'normal', color: '#52525b' }}>tx/s</span></div>
+          <div style={{ fontSize: '16px', fontWeight: '700', color: '#10b981' }}>{writeSpeed} <span style={{ fontSize: '10px', fontWeight: 'normal', color: '#52525b' }}>tx/s</span></div>
         </div>
       </div>
 
