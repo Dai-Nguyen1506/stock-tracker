@@ -93,7 +93,7 @@ async def run_discovery_bootstrap():
     API_KEY = os.getenv("ALPACA_API_KEY_ID", "")
     SECRET_KEY = os.getenv("ALPACA_API_SECRET_KEY", "")
     
-    binance_symbols = await get_active_usdt_symbols(limit=512)
+    binance_symbols = await get_active_usdt_symbols(limit=100)
     alpaca_symbols = await get_alpaca_crypto_symbols(API_KEY, SECRET_KEY)
     
     # Nếu Alpaca không lấy được thì tạo mock từ danh sách Binance để test trước

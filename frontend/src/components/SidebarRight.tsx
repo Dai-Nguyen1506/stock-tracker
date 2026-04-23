@@ -1,10 +1,7 @@
-import React, { useEffect, useState, useCallback, useRef } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
+import { API_BASE_URL } from '../config';
 
-interface SymbolInfo {
-  symbol: string;
-  price: number | null;
-  change: number | null;
-}
+
 
 interface SidebarRightProps {
   selectedSymbol: string;
@@ -34,7 +31,7 @@ async function fetchTickers(symbols: string[]): Promise<Record<string, { price: 
 // ── Stats từ Backend ─────────────────────────────────────────
 async function fetchStats() {
   try {
-    const res = await fetch('http://localhost:8001/api/v1/market/stats');
+    const res = await fetch(`${API_BASE_URL}/api/v1/market/stats`);
     return await res.json();
   } catch {
     return null;
@@ -53,14 +50,14 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({ selectedSymbol, onSe
   const [testStartDate, setTestStartDate] = useState(new Date(Date.now() - 7 * 86400000).toISOString().split('T')[0]);
   const [testEndDate, setTestEndDate] = useState(new Date().toISOString().split('T')[0]);
   const [testInterval, setTestInterval] = useState('1m');
-  const [testResult, setTestResult] = useState<{ writeMs: string; rows?: number } | null>(null);
+  const [testResult, setTestResult] = useState<any>(null);
   const [testing, setTesting] = useState(false);
 
   const allSymbols = [...symbols.priority, ...symbols.remainder];
 
   // Load symbols từ Discovery API - KHÔNG CẮT BỚT .slice()
   useEffect(() => {
-    fetch('http://localhost:8001/api/v1/market/symbols')
+    fetch(`${API_BASE_URL}/api/v1/market/symbols`)
       .then(r => r.json())
       .then(d => {
         if (d.priority?.length) setSymbols({ priority: d.priority, remainder: d.remainder });
@@ -91,7 +88,7 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({ selectedSymbol, onSe
     setTesting(true);
     setTestResult(null);
     try {
-      const res = await fetch(`http://localhost:8001/api/v1/market/test/ping`, {
+      const res = await fetch(`${API_BASE_URL}/api/v1/market/test/ping`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
@@ -103,9 +100,13 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({ selectedSymbol, onSe
         })
       });
       const data = await res.json();
-      setTestResult({ writeMs: data.write_ms, rows: data.rows });
+      if (data.error) {
+        setTestResult({ error: data.error });
+      } else {
+        setTestResult({ readMs: data.read_ms, rows: data.rows });
+      }
     } catch {
-      setTestResult({ writeMs: 'Lỗi' });
+      setTestResult({ error: 'Không thể kết nối tới Backend' });
     } finally {
       setTesting(false);
     }
@@ -228,15 +229,25 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({ selectedSymbol, onSe
           </button>
 
           {testResult && (
-            <div style={{ background: 'rgba(16,185,129,0.07)', border: '1px solid rgba(16,185,129,0.18)', borderRadius: '8px', padding: '9px 11px', marginTop: '6px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-                <span style={{ color: '#71717a', fontSize: '10px' }}>Rows Inserted</span>
-                <span style={{ color: '#a1a1aa', fontWeight: '600', fontSize: '12px' }}>{testResult.rows}</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ color: '#71717a', fontSize: '10px' }}>Write time</span>
-                <span style={{ color: '#3b82f6', fontWeight: '700', fontSize: '14px' }}>{testResult.writeMs} <span style={{ fontSize: '10px' }}>ms</span></span>
-              </div>
+            <div style={{ 
+              background: testResult.error ? 'rgba(244,63,94,0.07)' : 'rgba(16,185,129,0.07)', 
+              border: testResult.error ? '1px solid rgba(244,63,94,0.18)' : '1px solid rgba(16,185,129,0.18)', 
+              borderRadius: '8px', padding: '9px 11px', marginTop: '6px' 
+            }}>
+              {testResult.error ? (
+                <div style={{ color: '#f43f5e', fontSize: '11px', lineHeight: 1.4 }}>{testResult.error}</div>
+              ) : (
+                <>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                    <span style={{ color: '#71717a', fontSize: '10px' }}>Rows scanned</span>
+                    <span style={{ color: '#a1a1aa', fontWeight: '600', fontSize: '12px' }}>{testResult.rows}</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ color: '#71717a', fontSize: '10px' }}>Read time</span>
+                    <span style={{ color: '#3b82f6', fontWeight: '700', fontSize: '14px' }}>{testResult.readMs} <span style={{ fontSize: '10px' }}>ms</span></span>
+                  </div>
+                </>
+              )}
             </div>
           )}
         </div>

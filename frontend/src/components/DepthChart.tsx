@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { API_BASE_URL } from '../config';
 
 interface DepthChartProps {
   selectedSymbol: string;
@@ -27,9 +28,7 @@ function buildLevels(raw: [string, string][], side: 'bids' | 'asks', n = 10): Le
   return withTotal.map(x => ({ ...x, pct: (x.total / max) * 100 }));
 }
 
-function fmt(n: number, d = 2) {
-  return n.toLocaleString(undefined, { minimumFractionDigits: d, maximumFractionDigits: d });
-}
+
 
 export const DepthChart: React.FC<DepthChartProps> = ({ selectedSymbol }) => {
   const wsRef = useRef<WebSocket | null>(null);
@@ -93,7 +92,7 @@ export const DepthChart: React.FC<DepthChartProps> = ({ selectedSymbol }) => {
   useEffect(() => {
     const poll = async () => {
       try {
-        const res = await fetch('http://localhost:8001/api/v1/market/stats');
+        const res = await fetch(`${API_BASE_URL}/api/v1/market/stats`);
         const json = await res.json();
         setWriteSpeed(json.write_speed_per_s || 0);
         setGlobalIngest(json.ingest_speed_per_s || 0);

@@ -1,9 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
 
-// Cấu trúc dữ liệu WS trả về từ kênh Pub/Sub của Backend
-// Kline Data: {"type": "kline", "symbol": "BTCUSDT", "interval": "1m", "timestamp": 12345678, "close": "65000.12"}
-// News Data: {"type": "news", "symbol": "BTC", "headline": "...", "url": "...", "timestamp": ...}
-
 export type KlineWSMessage = {
   type: 'kline';
   symbol: string;
@@ -23,41 +19,38 @@ export type NewsWSMessage = {
 export function useStockWebSocket(url: string) {
   const [news, setNews] = useState<NewsWSMessage[]>([]);
   const [latestKline, setLatestKline] = useState<KlineWSMessage | null>(null);
-  
   const wsRef = useRef<WebSocket | null>(null);
 
   useEffect(() => {
     const ws = new WebSocket(url);
     wsRef.current = ws;
 
-    ws.onopen = () => {
-      console.log('✅ Connected to WebSockets Data Stream');
-    };
+    ws.onopen = () => console.log('✅ Connected to WebSockets');
 
     ws.onmessage = (event) => {
+      const raw = event.data;
+      // BỎ QUA NGAY NẾU LÀ HEARTBEAT (PONG)
+      if (raw === "pong" || typeof raw !== "string") return;
+
       try {
-        const data = JSON.parse(event.data);
-        
-        if (data.type === 'kline') {
-          setLatestKline(data);
-        } else if (data.type === 'news') {
-          setNews(prev => [data, ...prev].slice(0, 50)); // Giữ 50 tin mới nhất để nhẹ RAM
+        // Chỉ parse nếu là một chuỗi JSON hợp lệ
+        if (raw.trim().startsWith('{')) {
+          const data = JSON.parse(raw);
+          if (data.type === 'kline') {
+            setLatestKline(data);
+          } else if (data.type === 'news') {
+            setNews(prev => [data, ...prev].slice(0, 50));
+          }
         }
-      } catch (err) {
-        console.error("Lỗi parse WS Message", err);
+      } catch (e) {
+        // Không log lỗi nếu dữ liệu không phải JSON chủ đích
       }
     };
 
-    ws.onclose = () => {
-      console.log('❌ Disconnected from WebSockets');
-      // Co the them Logic auto-reconnect o day
-    };
+    ws.onclose = () => console.log('❌ Disconnected');
 
-    // Ping/Pong để giữ kết nối không bị timeout
     const interval = setInterval(() => {
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.send("ping");
-      }
+      if (ws.readyState === WebSocket.OPEN) ws.send("ping");
     }, 20000);
 
     return () => {

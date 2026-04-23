@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import styles from './App.module.css';
 import { useStockWebSocket } from './hooks/useStockWebSocket';
+import { WS_BASE_URL } from './config';
 
 // Import Components
 import { SidebarLeft } from './components/SidebarLeft';
@@ -10,20 +11,21 @@ import { DepthChart } from './components/DepthChart';
 
 function App() {
   const [selectedSymbol, setSelectedSymbol] = useState("BTCUSDT");
-  const { news } = useStockWebSocket("ws://127.0.0.1:8001/ws/live");
+  const [selectedInterval, setSelectedInterval] = useState("1m");
+  const { news } = useStockWebSocket(`${WS_BASE_URL}/ws/live`);
 
   return (
     <div className={styles.appContainer}>
       
       {/* CỘT TRÁI: News & Bot */}
       <div className={styles.leftCol}>
-        <SidebarLeft news={news} selectedSymbol={selectedSymbol} />
+        <SidebarLeft news={news} selectedSymbol={selectedSymbol} selectedInterval={selectedInterval} />
       </div>
 
       {/* CỘT GIỮA: Chart & Depth */}
       <div className={styles.midCol}>
         <div className={`glass-panel ${styles.panel} ${styles.chartPanel}`}>
-          <MainChart selectedSymbol={selectedSymbol} />
+          <MainChart selectedSymbol={selectedSymbol} selectedInterval={selectedInterval} setSelectedInterval={setSelectedInterval} />
         </div>
         <div className={`glass-panel ${styles.panel} ${styles.depthPanel}`}>
           <DepthChart selectedSymbol={selectedSymbol} />

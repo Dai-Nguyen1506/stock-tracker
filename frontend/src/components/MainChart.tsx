@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
+import { API_BASE_URL } from '../config';
 import { createChart, ColorType, CandlestickSeries, HistogramSeries } from 'lightweight-charts';
 import type { ISeriesApi, IChartApi } from 'lightweight-charts';
 import { useBinanceKlineStream } from '../hooks/useBinanceKlineStream';
@@ -18,14 +19,15 @@ const LIMIT_MAP: Record<string, number> = {
 
 interface MainChartProps {
   selectedSymbol: string;
+  selectedInterval: string;
+  setSelectedInterval: (val: string) => void;
 }
 
-export const MainChart: React.FC<MainChartProps> = ({ selectedSymbol }) => {
+export const MainChart: React.FC<MainChartProps> = ({ selectedSymbol, selectedInterval, setSelectedInterval }) => {
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const candleRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
   const volRef = useRef<ISeriesApi<'Histogram'> | null>(null);
-  const [selectedInterval, setSelectedInterval] = useState('1m');
   const [isLoading, setIsLoading] = useState(false);
   const [stats, setStats] = useState<{ close: string; change: string; vol: string; dir: 'up'|'down'|'flat' } | null>(null);
   // Track oldest timestamp for scroll-left pagination
@@ -98,7 +100,7 @@ export const MainChart: React.FC<MainChartProps> = ({ selectedSymbol }) => {
 
     setIsLoading(true);
     try {
-      let url = `http://localhost:8001/api/v1/market/history?symbol=${sym}&interval=${iv}&limit=${limit}`;
+      let url = `${API_BASE_URL}/api/v1/market/history?symbol=${sym}&interval=${iv}&limit=${limit}`;
       if (prepend && oldestTsRef.current > 0) {
         url += `&before_ts=${oldestTsRef.current}`;
       }

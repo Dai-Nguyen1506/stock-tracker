@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from contextlib import asynccontextmanager
-from routers import stocks, crypto, market
+from routers import stocks, crypto, market, chat
 from core.redis_client import init_redis, close_redis, get_redis
 
 import json
@@ -24,6 +24,16 @@ async def lifespan(app: FastAPI):
     await redis.set("market_symbols", json.dumps(market_symbols))
     print("✅ Discovery complete!")
     
+    print("🧠 Warming up Vector DB (Downloading ONNX models if needed)...")
+    from core.vector_db import get_news_collection
+    collection = get_news_collection()
+    if collection:
+        try:
+            collection.query(query_texts=["warmup"], n_results=1)
+            print("✅ Vector DB warmed up!")
+        except Exception as e:
+            print(f"⚠️ Vector DB warmup error: {e}")
+            
     yield
     # ── Shutdown ──
     print("🛑 Closing Cassandra connection...")
@@ -31,16 +41,27 @@ async def lifespan(app: FastAPI):
     print("🛑 Closing Redis connection...")
     await close_redis()
 
+from fastapi.middleware.cors import CORSMiddleware
+
 app = FastAPI(
     title="Stock Tracker API",
     version="0.1.0",
     lifespan=lifespan,
 )
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 app.include_router(stocks.router, prefix="/api/v1/stocks", tags=["Stocks"])
 app.include_router(crypto.router, prefix="/api/v1/crypto", tags=["Crypto"])
 app.include_router(market.router, prefix="/api/v1/market", tags=["Market"])
 app.include_router(market.ws_router, prefix="/ws", tags=["WebSockets"])
+app.include_router(chat.router, prefix="/api/v1/chat", tags=["Chatbot"])
 
 @app.get("/health")
 async def health_check():

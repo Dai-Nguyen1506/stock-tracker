@@ -31,7 +31,7 @@ async def flush_kline_to_db(session, kline_data):
         symbol = kline_data['symbol']
         interval = "1m"
         dt = datetime.fromtimestamp(kline_data['start_time']/1000.0, timezone.utc)
-        date_bucket = dt.strftime("%Y-%m-%d")
+        date_bucket = dt.date()
         
         # Chuyển đổi float thành dạng thập phân tiêu chuẩn để tránh Python tự động xuất "3.8e-06"
         def fmt(val):
@@ -114,7 +114,7 @@ async def process_depth_message(session, data, metrics):
     try:
         symbol = data['s']
         dt_now = datetime.now(timezone.utc)
-        date_bucket = dt_now.strftime("%Y-%m-%d")
+        date_bucket = dt_now.date()
         
         bids_str = json.dumps(data['b'][:10]) 
         asks_str = json.dumps(data['a'][:10])
@@ -131,30 +131,37 @@ async def process_depth_message(session, data, metrics):
 import httpx
 
 async def run_startup_backfill(session, symbols):
-    print(f"🔄 Đang tự động backfill nến 1m cho {len(symbols)} mã...")
+    print(f"🔄 Đang tự động backfill nến (1m, 1h, 4h) cho {len(symbols)} mã...")
+    intervals = ["1m", "1h", "4h"]
     async with httpx.AsyncClient() as client:
         for symbol in symbols:
-            url = f"https://api.binance.com/api/v3/klines?symbol={symbol}&interval=1m&limit=500"
-            try:
-                res = await client.get(url)
-                res.raise_for_status()
-                data = res.json()
-                for k in data:
-                    ts = int(k[0])
-                    dt = datetime.fromtimestamp(ts/1000.0, timezone.utc)
-                    date_bucket = dt.strftime("%Y-%m-%d")
-                    bound = _prepared_kline_stmt.bind()
-                    bound.bind_list([
-                        symbol, "1m", date_bucket, ts,
-                        f"{float(k[1]):.10f}".rstrip('0').rstrip('.'),
-                        f"{float(k[2]):.10f}".rstrip('0').rstrip('.'),
-                        f"{float(k[3]):.10f}".rstrip('0').rstrip('.'),
-                        f"{float(k[4]):.10f}".rstrip('0').rstrip('.'),
-                        f"{float(k[5]):.10f}".rstrip('0').rstrip('.')
-                    ])
-                    await session.execute(bound)
-            except Exception as e:
-                print(f"Lỗi backfill {symbol}: {e}")
+            for interval in intervals:
+                # Tăng giới hạn cho 1m, các khung cao hơn lấy ít hơn cũng được
+                limit = 1000 if interval == "1m" else 500
+                url = f"https://api.binance.com/api/v3/klines?symbol={symbol}&interval={interval}&limit={limit}"
+                try:
+                    res = await client.get(url, timeout=10)
+                    if res.status_code != 200:
+                        continue
+                    data = res.json()
+                    for k in data:
+                        ts = int(k[0])
+                        dt = datetime.fromtimestamp(ts/1000.0, timezone.utc)
+                        date_bucket = dt.date()
+                        bound = _prepared_kline_stmt.bind()
+                        bound.bind_list([
+                            symbol, interval, date_bucket, ts,
+                            f"{float(k[1]):.10f}".rstrip('0').rstrip('.'),
+                            f"{float(k[2]):.10f}".rstrip('0').rstrip('.'),
+                            f"{float(k[3]):.10f}".rstrip('0').rstrip('.'),
+                            f"{float(k[4]):.10f}".rstrip('0').rstrip('.'),
+                            f"{float(k[5]):.10f}".rstrip('0').rstrip('.')
+                        ])
+                        await session.execute(bound)
+                except Exception as e:
+                    print(f"Lỗi backfill {symbol} {interval}: {e}")
+            # Nghỉ ngắn giữa các symbol để tránh bị Binance ban IP
+            await asyncio.sleep(0.1)
     print("✅ Backfill startup hoàn tất.")
 
 async def run_binance_combined_stream(symbols):
