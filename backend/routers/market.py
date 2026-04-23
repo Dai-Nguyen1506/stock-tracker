@@ -40,7 +40,7 @@ async def get_history(
     
     results = []
     days_back = 0
-    max_days = 7
+    max_days = 14 # Tăng lên 14 ngày để tìm dữ liệu cũ hơn trong Cassandra
     current_dt = dt_now
     
     while len(results) < limit and days_back < max_days:
@@ -50,7 +50,9 @@ async def get_history(
         query = "SELECT timestamp, open, high, low, close, volume FROM market_data.klines WHERE symbol=? AND interval=? AND date_bucket=?"
         params = [symbol, interval, date_bucket]
         
-        if before_ts and days_back == 0:
+        # Sửa lỗi logic: Nếu là ngày đầu tiên (days_back == 0), ta lọc theo before_ts
+        # Nhưng nếu before_ts không có, ta lấy thoải mái.
+        if days_back == 0 and before_ts:
             query += " AND timestamp < ?"
             params.append(datetime.fromtimestamp(before_ts / 1000.0, timezone.utc))
             
@@ -73,7 +75,81 @@ async def get_history(
         current_dt -= timedelta(days=1)
         days_back += 1
         
+    # --- FALLBACK TO BINANCE API IF INSUFFICIENT DATA IN CASSANDRA ---
+    if len(results) < limit:
+        needed = limit - len(results)
+        # Sử dụng before_ts gốc nếu có, nếu không lấy mốc cuối của results
+        effective_before_ts = before_ts
+        if not effective_before_ts and results:
+            effective_before_ts = results[-1]["timestamp"]
+        elif not effective_before_ts:
+            # Nếu hoàn toàn không có gì, lấy mốc hiện tại
+            effective_before_ts = int(time.time() * 1000)
+            
+        print(f"⚠️ [History Fallback] Cassandra only has {len(results)}/{limit} for {symbol}. Fetching {needed} more from Binance...")
+        try:
+            api_data = await fetch_binance_klines(symbol, interval, needed, effective_before_ts)
+            if api_data:
+                # Gộp dữ liệu (Binance trả về DESC theo hàm của ta)
+                # Results đang là DESC, api_data cũng là DESC
+                results.extend(api_data)
+                # Lưu vào DB để lần sau có (chạy background)
+                asyncio.create_task(backfill_klines_to_cassandra(symbol, interval, api_data))
+        except Exception as e:
+            print(f"❌ [History Fallback] Error: {e}")
+
     return {"symbol": symbol, "interval": interval, "data": results}
+
+async def fetch_binance_klines(symbol, interval, limit, before_ts=None):
+    url = f"https://api.binance.com/api/v3/klines?symbol={symbol}&interval={interval}&limit={limit}"
+    if before_ts:
+        url += f"&endTime={before_ts - 1}" # Trừ 1ms để tránh lấy trùng nến tại mốc before_ts
+        
+    async with httpx.AsyncClient() as client:
+        res = await client.get(url, timeout=10)
+        res.raise_for_status()
+        data = res.json()
+        
+        results = []
+        for k in data:
+            results.append({
+                "timestamp": int(k[0]),
+                "open": float(k[1]),
+                "high": float(k[2]),
+                "low": float(k[3]),
+                "close": float(k[4]),
+                "volume": float(k[5]),
+            })
+        # Binance trả về ASC (cũ -> mới), ta cần DESC (mới -> cũ) cho frontend? 
+        # Thực tế frontend sorted lại, nhưng để đồng bộ với Cassandra ta cứ giữ nguyên hoặc sort DESC.
+        # Cassandra trả về DESC (do ORDER BY timestamp DESC).
+        return sorted(results, key=lambda x: x["timestamp"], reverse=True)
+
+async def backfill_klines_to_cassandra(symbol, interval, klines):
+    try:
+        session = await get_session()
+        stmt = await session.create_prepared(
+            "INSERT INTO market_data.klines (symbol, interval, date_bucket, timestamp, open, high, low, close, volume) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        )
+        for k in klines:
+            ts = k["timestamp"]
+            dt = datetime.fromtimestamp(ts/1000.0, timezone.utc)
+            date_bucket = dt.date()
+            
+            # Helper format decimal to avoid scientific notation if needed, but float is okay for bind
+            bound = stmt.bind()
+            bound.bind_list([
+                symbol, interval, date_bucket, ts,
+                f"{k['open']:.10f}".rstrip('0').rstrip('.'),
+                f"{k['high']:.10f}".rstrip('0').rstrip('.'),
+                f"{k['low']:.10f}".rstrip('0').rstrip('.'),
+                f"{k['close']:.10f}".rstrip('0').rstrip('.'),
+                f"{k['volume']:.10f}".rstrip('0').rstrip('.')
+            ])
+            await session.execute(bound)
+        print(f"✅ [Backfill] Đã lưu {len(klines)} nến {symbol} ({interval}) vào Cassandra.")
+    except Exception as e:
+        print(f"❌ [Backfill] Lỗi ghi Cassandra: {e}")
 
 async def fetch_alpaca_news(symbol, limit):
     api_key = os.getenv("ALPACA_API_KEY_ID", "")

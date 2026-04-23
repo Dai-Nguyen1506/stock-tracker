@@ -131,8 +131,8 @@ async def process_depth_message(session, data, metrics):
 import httpx
 
 async def run_startup_backfill(session, symbols):
-    print(f"🔄 Đang tự động backfill nến (1m, 1h, 4h) cho {len(symbols)} mã...")
-    intervals = ["1m", "1h", "4h"]
+    print(f"🔄 Đang tự động backfill nến (1m, 15m, 1h, 4h, 1d) cho {len(symbols)} mã...")
+    intervals = ["1m", "15m", "1h", "4h", "1d"]
     async with httpx.AsyncClient() as client:
         for symbol in symbols:
             for interval in intervals:
@@ -168,9 +168,9 @@ async def run_binance_combined_stream(symbols):
     session = await get_session()
     await init_prepared_statements(session)
     
-    # Backfill nến trước khi bắt đầu stream
-    priority_symbols = symbols[:15] # Backfill số lượng mã hot để tránh nghẽn
-    await run_startup_backfill(session, priority_symbols)
+    # Backfill nến trong background để không block stream chính
+    # Chạy cho TOÀN BỘ danh sách mã (nhưng ưu tiên các mã đầu trước)
+    asyncio.create_task(run_startup_backfill(session, symbols))
     
     # Link gộp luồng: Binance cho phép nghe Depth và AggTrade chung một websocket duy nhất
     streams = []

@@ -57,11 +57,13 @@ export const MainChart: React.FC<MainChartProps> = ({ selectedSymbol, selectedIn
         timeVisible: true,
         secondsVisible: false,
         rightOffset: 5,
+        shiftVisibleRangeOnNewBar: false,
       },
       rightPriceScale: {
         borderColor: 'rgba(255,255,255,0.08)',
+        autoScale: true,
       },
-      handleScroll: { mouseWheel: true, pressedMouseMove: true },
+      handleScroll: { mouseWheel: true, pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: true },
       handleScale: { axisPressedMouseMove: true, mouseWheel: true, pinch: true },
     });
 
@@ -125,18 +127,54 @@ export const MainChart: React.FC<MainChartProps> = ({ selectedSymbol, selectedIn
       }));
 
       if (prepend) {
-        currentDataRef.current.candles = [...newCandles, ...currentDataRef.current.candles];
-        currentDataRef.current.volumes = [...newVolumes, ...currentDataRef.current.volumes];
+        const timeScale = chart.timeScale();
+        const range = timeScale.getVisibleLogicalRange();
+        
+        // Gộp và Lọc trùng để tránh crash biểu đồ
+        const combinedCandles = [...newCandles, ...currentDataRef.current.candles];
+        const combinedVolumes = [...newVolumes, ...currentDataRef.current.volumes];
+        
+        // Loại bỏ trùng lặp và sắp xếp lại
+        const uniqueCandles: any[] = [];
+        const seenTs = new Set();
+        [...combinedCandles].sort((a,b) => a.time - b.time).forEach(c => {
+          if (!seenTs.has(c.time)) {
+            uniqueCandles.push(c);
+            seenTs.add(c.time);
+          }
+        });
+        
+        const uniqueVolumes: any[] = [];
+        const seenTsVol = new Set();
+        [...combinedVolumes].sort((a,b) => a.time - b.time).forEach(v => {
+          if (!seenTsVol.has(v.time)) {
+            uniqueVolumes.push(v);
+            seenTsVol.add(v.time);
+          }
+        });
+
+        currentDataRef.current.candles = uniqueCandles;
+        currentDataRef.current.volumes = uniqueVolumes;
+        
+        candle.setData(uniqueCandles);
+        vol.setData(uniqueVolumes);
+        
+        if (range) {
+           // Tính toán lại vị trí để không bị nhảy
+           const addedCount = uniqueCandles.length - (combinedCandles.length - newCandles.length);
+           if (addedCount > 0) {
+              timeScale.setVisibleLogicalRange({
+                from: range.from + addedCount,
+                to: range.to + addedCount
+              });
+           }
+        }
       } else {
         currentDataRef.current.candles = newCandles;
         currentDataRef.current.volumes = newVolumes;
-      }
-
-      candle.setData(currentDataRef.current.candles);
-      vol.setData(currentDataRef.current.volumes);
-      
-      if (!prepend) {
-          chart.timeScale().fitContent();
+        candle.setData(newCandles);
+        vol.setData(newVolumes);
+        chart.timeScale().fitContent();
       }
       
       if (sorted.length > 0) {
@@ -248,7 +286,19 @@ export const MainChart: React.FC<MainChartProps> = ({ selectedSymbol, selectedIn
       </div>
 
       {/* Chart fills remaining */}
-      <div ref={chartContainerRef} style={{ flex: 1, minHeight: 0 }} />
+      <div style={{ flex: 1, minHeight: 0, position: 'relative' }}>
+        <div ref={chartContainerRef} style={{ width: '100%', height: '100%' }} />
+        {isLoading && (
+          <div style={{
+            position: 'absolute', top: '10px', left: '50%', transform: 'translateX(-50%)',
+            background: 'rgba(59,130,246,0.9)', color: 'white', padding: '4px 12px',
+            borderRadius: '20px', fontSize: '11px', fontWeight: 'bold', zIndex: 10,
+            boxShadow: '0 4px 12px rgba(0,0,0,0.5)', pointerEvents: 'none'
+          }}>
+            Loading history...
+          </div>
+        )}
+      </div>
     </div>
   );
 };
