@@ -1,18 +1,28 @@
 from fastapi import FastAPI
 from contextlib import asynccontextmanager
 from routers import stocks, crypto, market
-from core.redis_client import init_redis, close_redis
+from core.redis_client import init_redis, close_redis, get_redis
+
+import json
+from ingestion.discovery import run_discovery_bootstrap
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # ── Startup ──
     print("🚀 Connecting to Cassandra...")
+    from core.cassandra import get_session, close_session
     await get_session()
     print("✅ Cassandra connected!")
     
     print("🚀 Connecting to Redis...")
     await init_redis()
+    redis = get_redis()
     print("✅ Redis connected!")
+    
+    print("🌐 Running Discovery Service...")
+    market_symbols = await run_discovery_bootstrap()
+    await redis.set("market_symbols", json.dumps(market_symbols))
+    print("✅ Discovery complete!")
     
     yield
     # ── Shutdown ──

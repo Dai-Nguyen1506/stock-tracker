@@ -46,7 +46,6 @@ async def flush_kline_to_db(session, kline_data):
         
         await session.execute(bound)
         
-        # Bắn real-time cho Frontend qua Redis Pub/Sub
         try:
             redis_client = get_redis()
             payload = json.dumps({
@@ -54,9 +53,13 @@ async def flush_kline_to_db(session, kline_data):
                 "symbol": symbol,
                 "interval": interval,
                 "timestamp": int(kline_data['start_time']),
-                "close": fmt(kline_data['close'])
+                "open": fmt(kline_data['open']),
+                "high": fmt(kline_data['high']),
+                "low": fmt(kline_data['low']),
+                "close": fmt(kline_data['close']),
+                "volume": fmt(kline_data['volume'])
             })
-            await redis_client.publish("live:klines", payload)
+            await redis_client.publish(f"live:klines:{symbol}", payload)
         except Exception as redis_e:
             print(f"Lỗi Redis PubSub: {redis_e}")
             
@@ -125,9 +128,42 @@ async def process_depth_message(session, data, metrics):
     except Exception as e:
         print(f"Error processing depth: {e}")
 
+import httpx
+
+async def run_startup_backfill(session, symbols):
+    print(f"🔄 Đang tự động backfill nến 1m cho {len(symbols)} mã...")
+    async with httpx.AsyncClient() as client:
+        for symbol in symbols:
+            url = f"https://api.binance.com/api/v3/klines?symbol={symbol}&interval=1m&limit=500"
+            try:
+                res = await client.get(url)
+                res.raise_for_status()
+                data = res.json()
+                for k in data:
+                    ts = int(k[0])
+                    dt = datetime.fromtimestamp(ts/1000.0, timezone.utc)
+                    date_bucket = dt.strftime("%Y-%m-%d")
+                    bound = _prepared_kline_stmt.bind()
+                    bound.bind_list([
+                        symbol, "1m", date_bucket, ts,
+                        f"{float(k[1]):.10f}".rstrip('0').rstrip('.'),
+                        f"{float(k[2]):.10f}".rstrip('0').rstrip('.'),
+                        f"{float(k[3]):.10f}".rstrip('0').rstrip('.'),
+                        f"{float(k[4]):.10f}".rstrip('0').rstrip('.'),
+                        f"{float(k[5]):.10f}".rstrip('0').rstrip('.')
+                    ])
+                    await session.execute(bound)
+            except Exception as e:
+                print(f"Lỗi backfill {symbol}: {e}")
+    print("✅ Backfill startup hoàn tất.")
+
 async def run_binance_combined_stream(symbols):
     session = await get_session()
     await init_prepared_statements(session)
+    
+    # Backfill nến trước khi bắt đầu stream
+    priority_symbols = symbols[:15] # Backfill số lượng mã hot để tránh nghẽn
+    await run_startup_backfill(session, priority_symbols)
     
     # Link gộp luồng: Binance cho phép nghe Depth và AggTrade chung một websocket duy nhất
     streams = []
@@ -139,8 +175,9 @@ async def run_binance_combined_stream(symbols):
     url = BINANCE_WS_URL  # Không nhồi toàn bộ names vào URL để tránh lỗi HTTP 414 URI Too Long
     print(f"🔗 [Binance] Đang kết nối chuẩn bị đăng ký {len(symbols)} mã ({len(streams)} luồng)...")
     
-    metrics = {'writes': 0}
+    metrics = {'writes': 0, 'ingests': 0}
     last_print = time.time()
+    redis_client = get_redis()
     
     async with websockets.connect(url, ping_interval=20, ping_timeout=20) as ws:
         # Binance cấm gửi quá nhiều streams trong 1 mảng JSON, chia ra mỗi block 50 streams
@@ -172,17 +209,33 @@ async def run_binance_combined_stream(symbols):
                 stream_name = raw["stream"]
                 data = raw["data"]
                 
+                metrics['ingests'] += 1
+                
                 # Phân luồng công việc vào Task rời rạc không block vòng while lớn
                 if "@depth" in stream_name:
                     asyncio.create_task(process_depth_message(session, data, metrics))
                 elif "@aggTrade" in stream_name:
                     asyncio.create_task(process_trade_message(session, data))
                 
-                # Cập nhật Terminal Log riêng cho luồng Ghi siêu tốc
-                if time.time() - last_print >= 5.0:
-                    print(f"🚀 [Speed Test] Depth ghi vào Cassandra: {metrics['writes']} tx trong 5 giây (~{metrics['writes']/5:.1f} tx/s)")
+                # Cập nhật Thống kê mỗi giây lên Redis
+                now = time.time()
+                elapsed = now - last_print
+                if elapsed >= 1.0:
+                    write_speed = int(metrics['writes'] / elapsed)
+                    ingest_speed = int(metrics['ingests'] / elapsed)
+                    
+                    peak = await redis_client.get("cassandra_peak_write")
+                    peak = int(peak) if peak else 0
+                    if write_speed > peak:
+                        await redis_client.set("cassandra_peak_write", write_speed)
+                    
+                    await redis_client.set("cassandra_write_speed", write_speed)
+                    await redis_client.set("global_ingest_speed", ingest_speed)
+                    
+                    print(f"🚀 [Speed Test] Writes: {write_speed} tx/s | Ingests: {ingest_speed} msg/s | Peak: {max(peak, write_speed)}")
                     metrics['writes'] = 0
-                    last_print = time.time()
+                    metrics['ingests'] = 0
+                    last_print = now
                     
             except Exception as e:
                 print(f"Binance WebSocket error: {e}")
