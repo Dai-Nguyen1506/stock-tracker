@@ -102,8 +102,8 @@ async def chat_with_bot(req: ChatRequest):
             count = collection.count()
             if count > 0:
                 n = min(5, count)
-                # Loại bỏ bộ lọc where để tìm kiếm trên tất cả các mã
-                res = collection.query(query_texts=[req.query], n_results=n)
+                # Trả lại bộ lọc where để chỉ lấy tin tức đúng mã giao dịch
+                res = collection.query(query_texts=[req.query], n_results=n, where={"symbol": full_symbol})
                 if res['documents'] and res['documents'][0]:
                     context_news = "\n".join([f"- {doc}" for doc in res['documents'][0]])
         except: pass

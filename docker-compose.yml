@@ -84,9 +84,11 @@ services:
       APP_ENV: production
       UVICORN_WORKERS: "2"
       REDIS_URL: redis://redis:6379/0
+      HF_HOME: /tmp/hf_cache
+      SENTENCE_TRANSFORMERS_HOME: /tmp/st_cache
     volumes:
       - ./backend:/app
-      - chroma_cache:/home/appuser/.cache
+      - ./.cache:/home/appuser/.cache
     depends_on:
       cassandra-init:
         condition: service_completed_successfully
@@ -160,6 +162,11 @@ services:
       CASSANDRA_HOST: cassandra
       REDIS_URL: redis://redis:6379/0
       PYTHONPATH: /app
+      HF_HOME: /tmp/hf_cache
+      SENTENCE_TRANSFORMERS_HOME: /tmp/st_cache
+    volumes:
+      - ./backend:/app
+      - ./.cache:/home/appuser/.cache
     depends_on:
       cassandra-init:
         condition: service_completed_successfully

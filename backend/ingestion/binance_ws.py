@@ -219,8 +219,6 @@ async def flush_worker(session, redis_client):
         if total_all == 0:
             continue
             
-        t0 = time.time()
-        
         # Tối ưu hóa CPU: Lặp đơn giản và batching siêu tốc (Cassandra C-driver cực nhanh)
         import acsylla
         
@@ -254,8 +252,10 @@ async def flush_worker(session, redis_client):
                     pass
         
         tasks = [exec_batch(b) for b in batches]
-        await asyncio.gather(*tasks)
         
+        # Tính thời gian chỉ lúc thực thi DB (để công bằng với Postgres)
+        t0 = time.time()
+        await asyncio.gather(*tasks)
         t1 = time.time()
         latency_ms = (t1 - t0) * 1000
 
