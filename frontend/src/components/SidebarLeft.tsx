@@ -27,6 +27,7 @@ export const SidebarLeft: React.FC<SidebarLeftProps> = ({ news: liveNews, select
   const [chatInput, setChatInput] = useState('');
   const [chatHistory, setChatHistory] = useState<{role: 'user' | 'ai', text: string}[]>([]);
   const [isChatLoading, setIsChatLoading] = useState(false);
+  const [toastNews, setToastNews] = useState<NewsItem | null>(null);
 
   useEffect(() => {
     setInitialLoading(true);
@@ -49,32 +50,47 @@ export const SidebarLeft: React.FC<SidebarLeftProps> = ({ news: liveNews, select
     const latest = liveNews[0];
     if (!latest) return;
     
+    const newItem: NewsItem = { symbol: latest.symbol, headline: latest.headline, url: latest.url, timestamp: latest.timestamp };
+    
+    // Hiện popup Global News (tất cả các mã)
+    setToastNews(newItem);
+    const t = setTimeout(() => setToastNews(null), 5000);
+    
     const baseSymbol = selectedSymbol.replace('USDT', '').toUpperCase();
     const newsSymbol = latest.symbol.toUpperCase();
     
-    // So khớp linh hoạt hơn: BTCUSD, BTC/USD, BTC đều khớp với BTC
+    // So khớp để đưa vào danh sách của mã hiện tại
     const isMatch = newsSymbol === baseSymbol || newsSymbol.startsWith(baseSymbol) || baseSymbol.startsWith(newsSymbol);
     
-    if (!isMatch) return;
+    if (isMatch) {
+        setItems(prev => {
+          if (prev.some(x => x.timestamp === newItem.timestamp && x.symbol === newItem.symbol)) return prev;
+          return [newItem, ...prev];
+        });
+    }
     
-    const newItem: NewsItem = { symbol: latest.symbol, headline: latest.headline, url: latest.url, timestamp: latest.timestamp };
-    setItems(prev => {
-      if (prev.some(x => x.timestamp === newItem.timestamp && x.symbol === newItem.symbol)) return prev;
-      return [newItem, ...prev];
-    });
-  }, [liveNews.length, selectedSymbol]);
+    return () => clearTimeout(t);
+  }, [liveNews]);
 
   const handleSendMessage = async () => {
     if (!chatInput.trim() || isChatLoading) return;
     const userMsg = chatInput.trim();
-    setChatHistory(prev => [...prev, { role: 'user', text: userMsg }]);
+    
+    // Lưu lịch sử chat
+    const updatedHistory = [...chatHistory, { role: 'user' as const, text: userMsg }];
+    setChatHistory(updatedHistory);
     setChatInput('');
     setIsChatLoading(true);
     try {
       const res = await fetch(`${API_BASE_URL}/api/v1/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: userMsg, symbol: selectedSymbol, interval: selectedInterval })
+        body: JSON.stringify({ 
+          query: userMsg, 
+          symbol: selectedSymbol, 
+          interval: selectedInterval,
+          history: updatedHistory // Gửi toàn bộ lịch sử
+        })
       });
       const data = await res.json();
       if (data.response) setChatHistory(prev => [...prev, { role: 'ai', text: data.response }]);
@@ -100,21 +116,16 @@ export const SidebarLeft: React.FC<SidebarLeftProps> = ({ news: liveNews, select
         <div ref={scrollRef} style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '6px' }}>
           {initialLoading ? <div style={{ textAlign: 'center', fontSize: '11px', color: '#52525b', padding: '20px' }}>Loading news...</div> :
             items.map((item, idx) => {
-              const isNew = (Date.now() - item.timestamp) < 30000; // Tin mới trong vòng 30 giây
               return (
                 <a key={`${item.timestamp}-${idx}`} href={item.url} target="_blank" rel="noopener noreferrer" style={{ textDecoration: 'none' }}>
                   <div style={{ 
                     padding: '8px 10px', 
-                    background: isNew ? 'rgba(59,130,246,0.1)' : 'rgba(255,255,255,0.02)', 
+                    background: 'rgba(255,255,255,0.02)', 
                     borderRadius: '7px', 
-                    borderLeft: isNew ? '3px solid #10b981' : '3px solid #3b82f6',
-                    animation: isNew ? 'pulse-new 2s infinite' : 'none'
+                    borderLeft: '3px solid #3b82f6',
                   }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                        <span style={{ color: '#3b82f6', fontWeight: '800', fontSize: '10px' }}>{item.symbol}</span>
-                        {isNew && <span style={{ background: '#10b981', color: 'white', fontSize: '8px', padding: '1px 4px', borderRadius: '3px', fontWeight: 'bold' }}>NEW</span>}
-                      </div>
+                      <span style={{ color: '#3b82f6', fontWeight: '800', fontSize: '10px' }}>{item.symbol}</span>
                       <span style={{ color: '#52525b', fontSize: '9px' }}>{new Date(item.timestamp).toLocaleTimeString()}</span>
                     </div>
                     <p style={{ fontSize: '11px', color: '#d4d4d8', margin: 0, lineHeight: '1.3' }}>{item.headline}</p>
@@ -124,6 +135,21 @@ export const SidebarLeft: React.FC<SidebarLeftProps> = ({ news: liveNews, select
             })
           }
         </div>
+        
+        {/* Global News Popup (Toast) */}
+        {toastNews && (
+          <div style={{
+            position: 'absolute', bottom: '46%', left: '12px', right: '12px',
+            background: 'rgba(16, 185, 129, 0.95)', padding: '10px 12px', borderRadius: '8px',
+            boxShadow: '0 4px 12px rgba(0,0,0,0.3)', zIndex: 10, animation: 'slide-up 0.3s ease-out'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+              <span style={{ color: '#fff', fontWeight: '800', fontSize: '11px' }}>🔔 TIN TỨC MỚI ({toastNews.symbol})</span>
+              <button onClick={() => setToastNews(null)} style={{ background: 'transparent', border: 'none', color: '#fff', cursor: 'pointer' }}>✕</button>
+            </div>
+            <p style={{ color: '#fff', fontSize: '11px', margin: 0, lineHeight: '1.4' }}>{toastNews.headline}</p>
+          </div>
+        )}
       </div>
 
       {/* KHUNG AI CHATBOT: ÉP CỨNG TỈ LỆ 45% */}

@@ -3,6 +3,7 @@ from pydantic import BaseModel
 from groq import AsyncGroq
 from core.vector_db import get_news_collection
 from core.cassandra import get_session
+from core.redis_client import get_redis
 from datetime import datetime, timezone, timedelta
 from typing import List, Optional
 import json
@@ -16,6 +17,7 @@ class ChatRequest(BaseModel):
     query: str
     symbol: str = None
     interval: str = "1m"
+    history: List[dict] = []
 
 class ChatResponse(BaseModel):
     response: str
@@ -69,6 +71,26 @@ async def chat_with_bot(req: ChatRequest):
         raise HTTPException(status_code=500, detail="Groq API Key is missing")
 
     full_symbol = req.symbol.upper() if req.symbol else "BTCUSDT"
+    
+    # Simple symbol extraction from query
+    words = req.query.upper().split()
+    possible_crypto = [w for w in words if len(w) >= 2 and w.isalpha()]
+    
+    # Try to find a symbol in the query (e.g. BTC, ETH, SOL)
+    redis = get_redis()
+    if redis:
+        try:
+            cached_symbols_json = await redis.get("market_symbols")
+            if cached_symbols_json:
+                data = json.loads(cached_symbols_json)
+                all_bases = [item["base"].upper() for item in data.get("priority_list", [])] + [item["base"].upper() for item in data.get("remainder_list", [])]
+                for w in possible_crypto:
+                    if w in all_bases:
+                        full_symbol = f"{w}USDT"
+                        break
+        except Exception:
+            pass
+
     base_symbol = full_symbol.replace("USDT", "")
     current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     
@@ -77,13 +99,13 @@ async def chat_with_bot(req: ChatRequest):
     context_news = "Không có tin tức mới."
     if collection:
         try:
-            # Tìm kiếm theo các biến thể symbol
-            possible_syms = [base_symbol, f"{base_symbol}USD", f"{base_symbol}USDT"]
-            where_filter = {"symbol": {"$in": possible_syms}}
-            
-            res = collection.query(query_texts=[req.query], n_results=5, where=where_filter)
-            if res['documents'] and res['documents'][0]:
-                context_news = "\n".join([f"- {doc}" for doc in res['documents'][0]])
+            count = collection.count()
+            if count > 0:
+                n = min(5, count)
+                # Loại bỏ bộ lọc where để tìm kiếm trên tất cả các mã
+                res = collection.query(query_texts=[req.query], n_results=n)
+                if res['documents'] and res['documents'][0]:
+                    context_news = "\n".join([f"- {doc}" for doc in res['documents'][0]])
         except: pass
 
     # 2. Lấy Giá (Cassandra)
@@ -101,16 +123,19 @@ GIÁ GẦN ĐÂY:
 TIN TỨC GẦN ĐÂY:
 {context_news}
 
-CÂU HỎI: {req.query}"""
+CÂU HỎI MỚI NHẤT: {req.query}"""
+
+    # Build messages array including history
+    messages = [{"role": "system", "content": system_prompt}]
+    for msg in req.history[:-1]: # exclude the last user msg because we inject it with context
+        messages.append({"role": msg.get("role", "user"), "content": msg.get("text", "")})
+    messages.append({"role": "user", "content": user_content})
 
     # --- Provider 1: Groq ---
     try:
         completion = await client.chat.completions.create(
             model="llama-3.3-70b-versatile",
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_content}
-            ],
+            messages=messages,
             temperature=0.2,
             max_tokens=2048
         )
@@ -119,19 +144,27 @@ CÂU HỎI: {req.query}"""
         error_msg = str(groq_e)
         print(f"⚠️ Groq Error: {error_msg}")
         
-        # --- Provider 2: Gemini Fallback (Nếu Groq lỗi 403 hoặc lỗi khác) ---
+        # --- Provider 2: Gemini Fallback ---
         gemini_key = os.getenv("GEMINI_API_KEY", "")
         if gemini_key:
             print("🔄 Falling back to Gemini...")
             try:
                 import httpx
                 url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={gemini_key}"
+                
+                # Format history for Gemini (user/model)
+                gemini_contents = []
+                # System prompt + initial context
+                gemini_contents.append({"role": "user", "parts": [{"text": system_prompt}]})
+                gemini_contents.append({"role": "model", "parts": [{"text": "Understood."}]})
+                
+                for msg in req.history[:-1]:
+                    r = "user" if msg.get("role") == "user" else "model"
+                    gemini_contents.append({"role": r, "parts": [{"text": msg.get("text", "")}]})
+                gemini_contents.append({"role": "user", "parts": [{"text": user_content}]})
+                
                 payload = {
-                    "contents": [{
-                        "parts": [{
-                            "text": f"{system_prompt}\n\nUSER QUESTION:\n{user_content}"
-                        }]
-                    }],
+                    "contents": gemini_contents,
                     "generationConfig": {
                         "temperature": 0.2,
                         "maxOutputTokens": 2048

@@ -140,7 +140,7 @@ async def run_startup_news_backfill(session, symbols, api_key, secret_key):
 
 async def fetch_and_store_news(session, url, headers):
     try:
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=30.0) as client:
             res = await client.get(url, headers=headers, timeout=10)
             if res.status_code == 200:
                 news_data = res.json().get('news', [])
@@ -180,7 +180,7 @@ async def run_news_stream(api_key, secret_key, symbols=["*"]):
     await run_startup_news_backfill(session, symbols, api_key, secret_key)
     
     print(f"📰 [News] Đang kết nối tới Alpaca News WS - Lắng nghe {len(symbols)} mã...")
-    async with websockets.connect(ALPACA_WS_URL, ping_interval=20, ping_timeout=20) as ws:
+    async with websockets.connect(ALPACA_WS_URL, open_timeout=60, ping_interval=20, ping_timeout=20) as ws:
         await ws.send(json.dumps({"action": "auth", "key": api_key, "secret": secret_key}))
         auth_response = await ws.recv()
         print(f"Auth Response: {auth_response}")

@@ -105,7 +105,7 @@ async def fetch_binance_klines(symbol, interval, limit, before_ts=None):
     if before_ts:
         url += f"&endTime={before_ts - 1}" # Trừ 1ms để tránh lấy trùng nến tại mốc before_ts
         
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=30.0) as client:
         res = await client.get(url, timeout=10)
         res.raise_for_status()
         data = res.json()
@@ -156,7 +156,7 @@ async def fetch_alpaca_news(symbol, limit):
     secret_key = os.getenv("ALPACA_API_SECRET_KEY", "")
     url = f"https://data.alpaca.markets/v1beta1/news?symbols={symbol}&limit={limit}"
     headers = {"APCA-API-KEY-ID": api_key, "APCA-API-SECRET-KEY": secret_key}
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=30.0) as client:
         try:
             res = await client.get(url, headers=headers)
             res.raise_for_status()
@@ -260,18 +260,21 @@ async def get_news_history(
         traceback.print_exc()
         return {"data": [], "error": str(e)}
 
-# ── REST API: Stats ──
 @router.get("/stats")
 async def get_stats():
     redis = get_redis()
-    write_speed = await redis.get("cassandra_write_speed")
-    ingest_speed = await redis.get("global_ingest_speed")
-    peak_write = await redis.get("cassandra_peak_write")
+    trade_speed = await redis.get("global_trade_speed")
+    depth_speed = await redis.get("global_depth_speed")
+    total_speed = await redis.get("global_total_speed")
+    latency = await redis.get("cassandra_avg_latency")
+    pg_latency = await redis.get("postgres_avg_latency")
     return {
-        "running": write_speed is not None,
-        "write_speed_per_s": int(write_speed) if write_speed else 0,
-        "ingest_speed_per_s": int(ingest_speed) if ingest_speed else 0,
-        "peak_write_per_s": int(peak_write) if peak_write else 0
+        "running": trade_speed is not None,
+        "trade_speed": int(trade_speed) if trade_speed else 0,
+        "depth_speed": int(depth_speed) if depth_speed else 0,
+        "total_speed": int(total_speed) if total_speed else 0,
+        "cassandra_latency_ms": float(latency) if latency else 0,
+        "postgres_latency_ms": float(pg_latency) if pg_latency else 0
     }
 
 
@@ -300,21 +303,33 @@ async def test_ping(request: PingTestRequest):
             start_dt = datetime.strptime(request.start_date, "%Y-%m-%d")
             end_dt = datetime.strptime(request.end_date, "%Y-%m-%d")
             
-            total_rows = 0
             t0 = time.time()
             
-            # Quét qua từng ngày trong khoảng để lấy dữ liệu (vì partition key chứa date_bucket)
+            async def fetch_day(date_bucket):
+                query = "SELECT * FROM market_data.klines WHERE symbol=? AND interval=? AND date_bucket=?"
+                stmt = acsylla.create_statement(query, parameters=[request.symbol, request.interval, date_bucket])
+                stmt.set_page_size(50000)
+                count = 0
+                has_more = True
+                while has_more:
+                    result = await session.execute(stmt)
+                    # Count elements
+                    for _ in result:
+                        count += 1
+                    if result.has_more_pages():
+                        stmt.set_page_state(result.page_state())
+                    else:
+                        has_more = False
+                return count
+
+            tasks = []
             curr = start_dt
             while curr <= end_dt:
-                date_bucket = curr.date()
-                query = "SELECT COUNT(*) FROM market_data.klines WHERE symbol=? AND interval=? AND date_bucket=?"
-                stmt = acsylla.create_statement(query, parameters=[request.symbol, request.interval, date_bucket])
-                result = await session.execute(stmt)
-                row = next(iter(result))
-                # acsylla returns count as column 0
-                total_rows += row[0]
+                tasks.append(fetch_day(curr.date()))
                 curr += timedelta(days=1)
                 
+            results = await asyncio.gather(*tasks)
+            total_rows = sum(results)
             t1 = time.time()
             
             return {
@@ -329,8 +344,89 @@ async def test_ping(request: PingTestRequest):
             stmt = acsylla.create_statement(query)
             await session.execute(stmt)
             t1 = time.time()
-            return {"read_ms": int((t1 - t0) * 1000), "write_ms": 0, "rows": 1}
+            return {
+            "read_ms": int((t1 - t0) * 1000),
+            "write_ms": 0,
+            "rows": total_rows
+        }
             
+    except Exception as e:
+        import traceback
+        return {"error": str(e), "trace": traceback.format_exc()}
+
+@router.post("/postgres/copy")
+async def postgres_copy(
+    symbol: str = Query("BTCUSDT", description="Mã cần copy"),
+    interval: str = Query("1m", description="Khung thời gian nến")
+):
+    try:
+        symbol = symbol.upper()
+        # Lấy từ Cassandra trước
+        session = await get_session()
+        cql = "SELECT timestamp, open, high, low, close, volume, date_bucket FROM market_data.klines WHERE symbol=? AND interval=? ALLOW FILTERING"
+        import acsylla
+        stmt = acsylla.create_statement(cql, parameters=[symbol, interval])
+        stmt.set_page_size(50000)
+        
+        all_rows = []
+        has_more = True
+        while has_more:
+            res = await session.execute(stmt)
+            for r in res:
+                ts = r.timestamp if isinstance(r.timestamp, int) else int(r.timestamp.timestamp() * 1000)
+                all_rows.append((symbol, interval, r.date_bucket, ts, str(r.open), str(r.high), str(r.low), str(r.close), str(r.volume)))
+            
+            if res.has_more_pages():
+                stmt.set_page_state(res.page_state())
+            else:
+                has_more = False
+
+        if not all_rows:
+            return {"status": "Không có dữ liệu Cassandra để copy"}
+
+        # Ghi vào Postgres
+        from core.postgres import get_pg_pool
+        import time
+        pool = await get_pg_pool()
+        
+        t0 = time.time()
+        async with pool.acquire() as conn:
+            await conn.executemany(
+                "INSERT INTO klines (symbol, interval, date_bucket, timestamp, open, high, low, close, volume) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) ON CONFLICT DO NOTHING", 
+                all_rows
+            )
+        t1 = time.time()
+        
+        return {
+            "status": f"Đã copy {len(all_rows)} dòng sang Postgres",
+            "write_ms": int((t1 - t0) * 1000)
+        }
+    except Exception as e:
+        return {"status": f"Lỗi copy: {str(e)}"}
+
+@router.post("/postgres/ping")
+async def postgres_ping(
+    symbol: str = Query("BTCUSDT", description="Mã giao dịch"),
+    interval: str = Query("1m", description="Khung thời gian nến")
+):
+    try:
+        from core.postgres import get_pg_pool
+        import time
+        symbol = symbol.upper()
+        pool = await get_pg_pool()
+        t0 = time.time()
+        
+        # Read toàn bộ
+        async with pool.acquire() as conn:
+            rows = await conn.fetch("SELECT * FROM klines WHERE symbol=$1 AND interval=$2", symbol, interval)
+            total_rows = len(rows)
+            
+        t1 = time.time()
+        return {
+            "read_ms": int((t1 - t0) * 1000),
+            "write_ms": 0,
+            "rows": total_rows
+        }    
     except Exception as e:
         import traceback
         return {"error": str(e), "trace": traceback.format_exc()}

@@ -34,14 +34,13 @@ export const DepthChart: React.FC<DepthChartProps> = ({ selectedSymbol }) => {
   const wsRef = useRef<WebSocket | null>(null);
   const [asks, setAsks] = useState<Level[]>([]);
   const [bids, setBids] = useState<Level[]>([]);
-  const [midPrice, setMidPrice] = useState<number | null>(null);
-  const [ingestRate, setIngestRate] = useState(0);
-  const [globalIngest, setGlobalIngest] = useState(0);
-  const [writeSpeed, setWriteSpeed] = useState<number>(0);
-  const [peakWrite, setPeakWrite] = useState<number>(0);
+  
+  const [tradeSpeed, setTradeSpeed] = useState<string | number>(0);
+  const [depthSpeed, setDepthSpeed] = useState<number>(0);
+  const [totalSpeed, setTotalSpeed] = useState<number>(0);
+  const [latency, setLatency] = useState<string | number>(0);
+  const [pgLatency, setPgLatency] = useState<string | number>(0);
   const [time, setTime] = useState<string>('');
-  const msgCountRef = useRef(0);
-  const lastCountRef = useRef(Date.now());
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -61,26 +60,18 @@ export const DepthChart: React.FC<DepthChartProps> = ({ selectedSymbol }) => {
     ws.onmessage = (evt) => {
       try {
         const data = JSON.parse(evt.data);
-        msgCountRef.current += 1;
-
-        // Đo ingest rate mỗi 1 giây
-        const now = Date.now();
-        const elapsed = (now - lastCountRef.current) / 1000;
-        if (elapsed >= 1.0) {
-          const rate = +(msgCountRef.current / elapsed).toFixed(1);
-          setIngestRate(rate);
-          msgCountRef.current = 0;
-          lastCountRef.current = now;
-        }
-
         const newBids = buildLevels(data.bids || [], 'bids', 10);
         const newAsks = buildLevels(data.asks || [], 'asks', 10);
         setBids(newBids);
         setAsks(newAsks);
-
+        
+        // Phát event giá midPrice cho App nhận (tùy chọn)
         const bestBid = newBids[0]?.price;
         const bestAsk = newAsks[0]?.price;
-        if (bestBid && bestAsk) setMidPrice((bestBid + bestAsk) / 2);
+        if (bestBid && bestAsk) {
+           const ev = new CustomEvent('midPriceUpdate', { detail: (bestBid + bestAsk) / 2 });
+           window.dispatchEvent(ev);
+        }
       } catch { }
     };
 
@@ -94,9 +85,11 @@ export const DepthChart: React.FC<DepthChartProps> = ({ selectedSymbol }) => {
       try {
         const res = await fetch(`${API_BASE_URL}/api/v1/market/stats`);
         const json = await res.json();
-        setWriteSpeed(json.write_speed_per_s || 0);
-        setGlobalIngest(json.ingest_speed_per_s || 0);
-        setPeakWrite(json.peak_write_per_s || 0);
+        setTradeSpeed(json.trade_speed || 0);
+        setDepthSpeed(json.depth_speed || 0);
+        setTotalSpeed(json.total_speed || 0);
+        setLatency(json.cassandra_latency_ms || 0);
+        setPgLatency(json.postgres_latency_ms || 0);
       } catch { }
     };
     poll();
@@ -128,37 +121,43 @@ export const DepthChart: React.FC<DepthChartProps> = ({ selectedSymbol }) => {
         <span style={{ color: '#f43f5e', fontWeight: '700' }}>Ask {100 - bidPct}%</span>
       </div>
 
-      <div style={{ padding: '4px 0', display: 'flex', justifyContent: 'center', marginBottom: '12px' }}>
-          {midPrice
-            ? <span style={{ fontSize: '18px', fontWeight: '700', color: '#f8fafc', fontVariantNumeric: 'tabular-nums' }}>{midPrice.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
-            : <span style={{ color: '#52525b', fontSize: '11px' }}>Connecting...</span>}
-      </div>
-
       {/* System Metrics Dashboard */}
-      <div style={{ flex: 1, display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '8px', overflowY: 'auto', minHeight: 0, paddingRight: '4px' }}>
+      <div style={{ flex: 1, display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '8px', overflowY: 'auto', minHeight: 0, paddingRight: '4px' }}>
+        
+        {/* Ô 1: Trade data */}
         <div style={{ background: 'rgba(255,255,255,0.03)', padding: '10px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.05)', flexShrink: 0 }}>
-          <div style={{ fontSize: '10px', color: '#a1a1aa', marginBottom: '4px' }}>Sys Ingest ({selectedSymbol})</div>
-          <div style={{ fontSize: '16px', fontWeight: '700', color: '#3b82f6' }}>{ingestRate} <span style={{ fontSize: '10px', fontWeight: 'normal', color: '#52525b' }}>msg/s</span></div>
+          <div style={{ fontSize: '10px', color: '#a1a1aa', marginBottom: '4px' }}>Candles Created</div>
+          <div style={{ fontSize: '16px', fontWeight: '700', color: '#3b82f6' }}>{tradeSpeed} <span style={{ fontSize: '10px', fontWeight: 'normal', color: '#52525b' }}>/ 1 min</span></div>
         </div>
 
+        {/* Ô 2: Order book data */}
         <div style={{ background: 'rgba(255,255,255,0.03)', padding: '10px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.05)', flexShrink: 0 }}>
-          <div style={{ fontSize: '10px', color: '#a1a1aa', marginBottom: '4px' }}>Global Ingest (All)</div>
-          <div style={{ fontSize: '16px', fontWeight: '700', color: '#8b5cf6' }}>{globalIngest} <span style={{ fontSize: '10px', fontWeight: 'normal', color: '#52525b' }}>msg/s</span></div>
+          <div style={{ fontSize: '10px', color: '#a1a1aa', marginBottom: '4px' }}>Depth Messages</div>
+          <div style={{ fontSize: '16px', fontWeight: '700', color: '#8b5cf6' }}>{depthSpeed} <span style={{ fontSize: '10px', fontWeight: 'normal', color: '#52525b' }}>/ 1 min</span></div>
         </div>
 
-        <div style={{ gridColumn: '1 / -1', background: 'rgba(16,185,129,0.05)', padding: '10px', borderRadius: '8px', border: '1px solid rgba(16,185,129,0.15)', flexShrink: 0 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-            <span style={{ fontSize: '10px', color: '#10b981' }}>Cassandra Write Speed</span>
-            <span style={{ fontSize: '8px', background: 'rgba(16,185,129,0.2)', color: '#10b981', padding: '2px 6px', borderRadius: '10px' }}>Disk I/O</span>
-          </div>
-          <div style={{ fontSize: '16px', fontWeight: '700', color: '#10b981' }}>{writeSpeed} <span style={{ fontSize: '10px', fontWeight: 'normal', color: '#52525b' }}>tx/s</span></div>
+        {/* Ô 3: Total data */}
+        <div style={{ background: 'rgba(255,255,255,0.03)', padding: '10px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.05)', flexShrink: 0 }}>
+          <div style={{ fontSize: '10px', color: '#a1a1aa', marginBottom: '4px' }}>Total Records</div>
+          <div style={{ fontSize: '16px', fontWeight: '700', color: '#f59e0b' }}>{totalSpeed} <span style={{ fontSize: '10px', fontWeight: 'normal', color: '#52525b' }}>/ 1 min</span></div>
+        </div>
+
+        {/* Ô 4: Cassandra Latency */}
+        <div style={{ background: 'rgba(16,185,129,0.05)', padding: '10px', borderRadius: '8px', border: '1px solid rgba(16,185,129,0.15)', flexShrink: 0 }}>
+          <div style={{ fontSize: '10px', color: '#10b981', marginBottom: '4px' }}>Cassandra Write</div>
+          <div style={{ fontSize: '16px', fontWeight: '700', color: '#10b981' }}>{latency} <span style={{ fontSize: '10px', fontWeight: 'normal', color: '#52525b' }}>ms</span></div>
+        </div>
+
+        {/* Ô 5: Postgres Latency */}
+        <div style={{ background: 'rgba(244,63,94,0.05)', padding: '10px', borderRadius: '8px', border: '1px solid rgba(244,63,94,0.15)', flexShrink: 0 }}>
+          <div style={{ fontSize: '10px', color: '#f43f5e', marginBottom: '4px' }}>Postgres Write</div>
+          <div style={{ fontSize: '16px', fontWeight: '700', color: '#f43f5e' }}>{pgLatency} <span style={{ fontSize: '10px', fontWeight: 'normal', color: '#52525b' }}>ms</span></div>
         </div>
       </div>
 
       {/* Stats bar dưới cùng */}
-      <div style={{ marginTop: 'auto', paddingTop: '10px', borderTop: '1px dashed rgba(255,255,255,0.1)', display: 'flex', justifyContent: 'space-between', fontSize: '11px' }}>
+      <div style={{ marginTop: 'auto', paddingTop: '10px', borderTop: '1px dashed rgba(255,255,255,0.1)', display: 'flex', justifyContent: 'center', fontSize: '11px' }}>
         <span style={{ color: '#52525b' }}>{time}</span>
-        <span style={{ color: '#71717a' }}>Peak Write: <strong style={{ color: '#f59e0b' }}>{peakWrite}</strong> tx/s</span>
       </div>
     </div>
   );

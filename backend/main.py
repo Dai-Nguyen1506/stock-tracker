@@ -2,6 +2,8 @@ from fastapi import FastAPI
 from contextlib import asynccontextmanager
 from routers import stocks, crypto, market, chat
 from core.redis_client import init_redis, close_redis, get_redis
+from core.postgres import init_pg
+from core.cassandra import get_session, close_session
 
 import json
 from ingestion.discovery import run_discovery_bootstrap
@@ -10,7 +12,6 @@ from ingestion.discovery import run_discovery_bootstrap
 async def lifespan(app: FastAPI):
     # ── Startup ──
     print("🚀 Connecting to Cassandra...")
-    from core.cassandra import get_session, close_session
     await get_session()
     print("✅ Cassandra connected!")
     
@@ -18,22 +19,18 @@ async def lifespan(app: FastAPI):
     await init_redis()
     redis = get_redis()
     print("✅ Redis connected!")
+
+    print("🚀 Connecting to PostgreSQL...")
+    await init_pg()
+    print("✅ PostgreSQL connected!")
     
     print("🌐 Running Discovery Service...")
     market_symbols = await run_discovery_bootstrap()
     await redis.set("market_symbols", json.dumps(market_symbols))
     print("✅ Discovery complete!")
     
-    print("🧠 Warming up Vector DB (Downloading ONNX models if needed)...")
-    from core.vector_db import get_news_collection
-    collection = get_news_collection()
-    if collection:
-        try:
-            collection.query(query_texts=["warmup"], n_results=1)
-            print("✅ Vector DB warmed up!")
-        except Exception as e:
-            print(f"⚠️ Vector DB warmup error: {e}")
-            
+    print("🧠 Skipping Vector DB Warmup to prevent startup hang...")
+    
     yield
     # ── Shutdown ──
     print("🛑 Closing Cassandra connection...")

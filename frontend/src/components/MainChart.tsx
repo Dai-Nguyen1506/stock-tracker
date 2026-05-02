@@ -249,6 +249,14 @@ export const MainChart: React.FC<MainChartProps> = ({ selectedSymbol, selectedIn
     } catch { }
   });
 
+  const [midPrice, setMidPrice] = useState<number | null>(null);
+
+  useEffect(() => {
+    const handler = (e: Event) => setMidPrice((e as CustomEvent).detail);
+    window.addEventListener('midPriceUpdate', handler);
+    return () => window.removeEventListener('midPriceUpdate', handler);
+  }, []);
+
   const changeColor = stats?.dir === 'up' ? '#10b981' : stats?.dir === 'down' ? '#f43f5e' : '#a1a1aa';
 
   // ── Render ────────────────────────────────────────────
@@ -256,7 +264,7 @@ export const MainChart: React.FC<MainChartProps> = ({ selectedSymbol, selectedIn
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column', padding: '14px 16px 10px' }}>
       {/* Header row */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '10px', gap: '8px', flexWrap: 'wrap' }}>
-        <div>
+        <div style={{ flex: 1 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <h3 style={{ fontSize: '17px', fontWeight: '700', color: '#f8fafc' }}>{selectedSymbol}</h3>
             {isLoading && <span style={{ fontSize: '11px', color: '#52525b' }}>Loading...</span>}
@@ -270,18 +278,32 @@ export const MainChart: React.FC<MainChartProps> = ({ selectedSymbol, selectedIn
           )}
         </div>
 
+        {/* Market Price in the center */}
+        <div style={{ flex: 1, display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+          {midPrice ? (
+            <div style={{ textAlign: 'center' }}>
+              <div style={{ fontSize: '11px', color: '#a1a1aa', marginBottom: '2px' }}>Market Price</div>
+              <div style={{ fontSize: '22px', fontWeight: '700', color: '#f59e0b', fontVariantNumeric: 'tabular-nums' }}>
+                {midPrice.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+              </div>
+            </div>
+          ) : null}
+        </div>
+
         {/* Interval buttons */}
-        <div style={{ display: 'flex', gap: '3px', background: 'rgba(0,0,0,0.35)', padding: '4px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.07)' }}>
-          {INTERVALS.map(iv => (
-            <button key={iv.value} onClick={() => setSelectedInterval(iv.value)} style={{
-              padding: '5px 10px', border: 'none', borderRadius: '5px', fontSize: '12px', fontWeight: '600',
-              cursor: 'pointer', transition: 'all 0.12s',
-              background: selectedInterval === iv.value ? '#3b82f6' : 'transparent',
-              color: selectedInterval === iv.value ? '#fff' : '#71717a',
-            }}>
-              {iv.label}
-            </button>
-          ))}
+        <div style={{ flex: 1, display: 'flex', justifyContent: 'flex-end' }}>
+          <div style={{ display: 'flex', gap: '3px', background: 'rgba(0,0,0,0.35)', padding: '4px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.07)', height: 'fit-content' }}>
+            {INTERVALS.map(iv => (
+              <button key={iv.value} onClick={() => setSelectedInterval(iv.value)} style={{
+                padding: '5px 10px', border: 'none', borderRadius: '5px', fontSize: '12px', fontWeight: '600',
+                cursor: 'pointer', transition: 'all 0.12s',
+                background: selectedInterval === iv.value ? '#3b82f6' : 'transparent',
+                color: selectedInterval === iv.value ? '#fff' : '#71717a',
+              }}>
+                {iv.label}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 

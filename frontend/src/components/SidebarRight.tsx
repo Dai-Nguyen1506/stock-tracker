@@ -28,23 +28,12 @@ async function fetchTickers(symbols: string[]): Promise<Record<string, { price: 
   }
 }
 
-// ── Stats từ Backend ─────────────────────────────────────────
-async function fetchStats() {
-  try {
-    const res = await fetch(`${API_BASE_URL}/api/v1/market/stats`);
-    return await res.json();
-  } catch {
-    return null;
-  }
-}
-
 export const SidebarRight: React.FC<SidebarRightProps> = ({ selectedSymbol, onSelectSymbol }) => {
   const [symbols, setSymbols] = useState<{ priority: string[]; remainder: string[] }>({
-    priority: ['BTCUSDT','ETHUSDT','SOLUSDT','BNBUSDT','XRPUSDT'],
-    remainder: ['ADAUSDT','DOGEUSDT','AVAXUSDT','DOTUSDT','MATICUSDT'],
+    priority: [],
+    remainder: [],
   });
   const [tickers, setTickers] = useState<Record<string, { price: number; change: number }>>({});
-  const [stats, setStats] = useState<any>(null);
 
   // Test state
   const [testStartDate, setTestStartDate] = useState(new Date(Date.now() - 7 * 86400000).toISOString().split('T')[0]);
@@ -57,12 +46,22 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({ selectedSymbol, onSe
 
   // Load symbols từ Discovery API - KHÔNG CẮT BỚT .slice()
   useEffect(() => {
-    fetch(`${API_BASE_URL}/api/v1/market/symbols`)
-      .then(r => r.json())
-      .then(d => {
-        if (d.priority?.length) setSymbols({ priority: d.priority, remainder: d.remainder });
-      })
-      .catch(() => {});
+    const fetchSymbols = () => {
+      fetch(`${API_BASE_URL}/api/v1/market/symbols`)
+        .then(r => r.json())
+        .then(d => {
+          if (d.priority?.length || d.remainder?.length) {
+            setSymbols({ priority: d.priority || [], remainder: d.remainder || [] });
+          } else {
+            // Retry if empty (backend might still be warming up)
+            setTimeout(fetchSymbols, 2000);
+          }
+        })
+        .catch(() => {
+            setTimeout(fetchSymbols, 2000);
+        });
+    };
+    fetchSymbols();
   }, []);
 
   const refreshTickers = useCallback(async () => {
@@ -76,13 +75,6 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({ selectedSymbol, onSe
     const timer = setInterval(refreshTickers, 5000);
     return () => clearInterval(timer);
   }, [refreshTickers]);
-
-  useEffect(() => {
-    const load = () => fetchStats().then(s => setStats(s));
-    load();
-    const timer = setInterval(load, 6000);
-    return () => clearInterval(timer);
-  }, []);
 
   const handleTest = async () => {
     setTesting(true);
@@ -104,6 +96,38 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({ selectedSymbol, onSe
         setTestResult({ error: data.error });
       } else {
         setTestResult({ readMs: data.read_ms, rows: data.rows });
+      }
+    } catch {
+      setTestResult({ error: 'Không thể kết nối tới Backend' });
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  const handlePgCopy = async () => {
+    setTesting(true);
+    setTestResult(null);
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/v1/market/postgres/copy?symbol=${selectedSymbol}&interval=${testInterval}`, { method: 'POST' });
+      const data = await res.json();
+      setTestResult({ error: data.status, readMs: data.write_ms, rows: '-' }); // Using error field just to display status text for now
+    } catch {
+      setTestResult({ error: 'Không thể kết nối tới Backend' });
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  const handlePgPing = async () => {
+    setTesting(true);
+    setTestResult(null);
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/v1/market/postgres/ping?symbol=${selectedSymbol}&interval=${testInterval}`, { method: 'POST' });
+      const data = await res.json();
+      if (data.error) {
+        setTestResult({ error: data.error });
+      } else {
+        setTestResult({ readMs: data.read_ms, rows: data.rows, isPg: true });
       }
     } catch {
       setTestResult({ error: 'Không thể kết nối tới Backend' });
@@ -174,25 +198,7 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({ selectedSymbol, onSe
       <div className="glass-panel" style={{ flex: 4, display: 'flex', flexDirection: 'column', padding: '14px', overflow: 'hidden' }}>
         <h3 style={{ fontWeight: '700', fontSize: '14px', color: '#f8fafc', marginBottom: '10px' }}>⚡ Cassandra Test</h3>
 
-        {stats && (
-          <div style={{ marginBottom: '10px', padding: '8px', background: 'rgba(0,0,0,0.3)', borderRadius: '6px', fontSize: '11px' }}>
-            <div style={{ color: '#52525b', marginBottom: '3px' }}>Ingestion Worker</div>
-            {stats.running ? (
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span>
-                  <span style={{ color: '#10b981', fontWeight: '700' }}>{stats.write_speed_per_s}</span>
-                  <span style={{ color: '#71717a' }}> tx/s write</span>
-                </span>
-                <span>
-                  <span style={{ color: '#3b82f6', fontWeight: '700' }}>{stats.ingest_speed_per_s}</span>
-                  <span style={{ color: '#71717a' }}> msg/s</span>
-                </span>
-              </div>
-            ) : (
-              <span style={{ color: '#52525b' }}>binance_ws.py chưa chạy</span>
-            )}
-          </div>
-        )}
+        {/* Ingestion Worker info removed */}
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', flex: 1 }}>
           <div style={{ padding: '6px 9px', background: 'rgba(59,130,246,0.08)', borderRadius: '6px', border: '1px solid rgba(59,130,246,0.15)', fontSize: '11px', color: '#93c5fd' }}>
@@ -221,11 +227,25 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({ selectedSymbol, onSe
             </div>
           </div>
 
-          <button onClick={handleTest} disabled={testing} style={{
-            background: testing ? 'rgba(59,130,246,0.35)' : '#3b82f6', color: 'white', border: 'none',
-            padding: '9px', borderRadius: '6px', fontWeight: '700', cursor: testing ? 'wait' : 'pointer', fontSize: '12px',
+          <div style={{ display: 'flex', gap: '6px' }}>
+            <button onClick={handleTest} disabled={testing} style={{
+              flex: 1, background: testing ? 'rgba(59,130,246,0.35)' : '#3b82f6', color: 'white', border: 'none',
+              padding: '9px', borderRadius: '6px', fontWeight: '700', cursor: testing ? 'wait' : 'pointer', fontSize: '11px',
+            }}>
+              {testing ? '⏳' : 'Cassandra Ping'}
+            </button>
+            <button onClick={handlePgPing} disabled={testing} style={{
+              flex: 1, background: testing ? 'rgba(244,63,94,0.35)' : '#f43f5e', color: 'white', border: 'none',
+              padding: '9px', borderRadius: '6px', fontWeight: '700', cursor: testing ? 'wait' : 'pointer', fontSize: '11px',
+            }}>
+              {testing ? '⏳' : 'Postgres Ping'}
+            </button>
+          </div>
+          <button onClick={handlePgCopy} disabled={testing} style={{
+            background: testing ? 'rgba(16,185,129,0.35)' : '#10b981', color: 'white', border: 'none',
+            padding: '9px', borderRadius: '6px', fontWeight: '700', cursor: testing ? 'wait' : 'pointer', fontSize: '11px',
           }}>
-            {testing ? '⏳ Đang Ping...' : '🚀 Ping Cassandra'}
+            {testing ? '⏳ Đang Copy...' : '🔄 Copy to Postgres'}
           </button>
 
           {testResult && (
@@ -235,16 +255,19 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({ selectedSymbol, onSe
               borderRadius: '8px', padding: '9px 11px', marginTop: '6px' 
             }}>
               {testResult.error ? (
-                <div style={{ color: '#f43f5e', fontSize: '11px', lineHeight: 1.4 }}>{testResult.error}</div>
+                <div>
+                   <div style={{ color: '#f43f5e', fontSize: '11px', lineHeight: 1.4, marginBottom: testResult.readMs ? '4px' : '0' }}>{testResult.error}</div>
+                   {testResult.readMs && <div style={{ color: '#10b981', fontSize: '11px' }}>Time: {testResult.readMs}ms</div>}
+                </div>
               ) : (
                 <>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-                    <span style={{ color: '#71717a', fontSize: '10px' }}>Rows scanned</span>
+                    <span style={{ color: '#71717a', fontSize: '10px' }}>Rows scanned ({testResult.isPg ? 'PG' : 'Cass'})</span>
                     <span style={{ color: '#a1a1aa', fontWeight: '600', fontSize: '12px' }}>{testResult.rows}</span>
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <span style={{ color: '#71717a', fontSize: '10px' }}>Read time</span>
-                    <span style={{ color: '#3b82f6', fontWeight: '700', fontSize: '14px' }}>{testResult.readMs} <span style={{ fontSize: '10px' }}>ms</span></span>
+                    <span style={{ color: testResult.isPg ? '#f43f5e' : '#3b82f6', fontWeight: '700', fontSize: '14px' }}>{testResult.readMs} <span style={{ fontSize: '10px' }}>ms</span></span>
                   </div>
                 </>
               )}

@@ -86,6 +86,7 @@ services:
       REDIS_URL: redis://redis:6379/0
     volumes:
       - ./backend:/app
+      - chroma_cache:/home/appuser/.cache
     depends_on:
       cassandra-init:
         condition: service_completed_successfully
@@ -111,16 +112,25 @@ services:
   frontend:
     build:
       context: ./frontend
-      dockerfile: Dockerfile
     ports:
-      - "80:80"
+      - "3000:80"
     depends_on:
       - backend
+    networks:
+      - stock_network
+
+  postgres:
+    image: postgres:15-alpine
     environment:
-      - VITE_API_BASE_URL=http://backend:8000
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: market_data
+    ports:
+      - "5432:5432"
     networks:
       - stock_network
     restart: unless-stopped
+    # Không map volume để xoá sạch dữ liệu khi tắt container
 
   ingestion-binance:
     build: ./backend
@@ -168,5 +178,8 @@ networks:
 
 # ── VOLUMES ──────────────────────────────────────────
 volumes:
-  cassandra_data:   # Named volume: Docker quản lý, data không mất khi restart
+  cassandra_data:
+  chroma_data:
+  redis_data:
+  chroma_cache:
   chromadb_data:

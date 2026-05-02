@@ -46,7 +46,7 @@ def get_optimized_crypto_lists(binance_raw_list, alpaca_raw_list):
 async def get_active_usdt_symbols(limit=1000):
     """Lấy danh sách mã USDT đang TRADING trên Binance."""
     url = "https://api.binance.com/api/v3/exchangeInfo"
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=30.0) as client:
         try:
             response = await client.get(url)
             response.raise_for_status()
@@ -77,7 +77,7 @@ async def get_alpaca_crypto_symbols(api_key, secret_key):
         "status": "active"
     }
 
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=30.0) as client:
         try:
             response = await client.get(url, headers=headers, params=params)
             response.raise_for_status()
@@ -93,7 +93,7 @@ async def run_discovery_bootstrap():
     API_KEY = os.getenv("ALPACA_API_KEY_ID", "")
     SECRET_KEY = os.getenv("ALPACA_API_SECRET_KEY", "")
     
-    binance_symbols = await get_active_usdt_symbols(limit=100)
+    binance_symbols = await get_active_usdt_symbols(limit=1000)
     alpaca_symbols = await get_alpaca_crypto_symbols(API_KEY, SECRET_KEY)
     
     # Nếu Alpaca không lấy được thì tạo mock từ danh sách Binance để test trước

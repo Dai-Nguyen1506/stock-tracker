@@ -25,6 +25,7 @@ CREATE TABLE IF NOT EXISTS klines (
     'compaction_window_unit': 'DAYS',
     'compaction_window_size': 1
   }
+  AND compression = {'class': 'LZ4Compressor', 'chunk_length_in_kb': 64}
   AND caching = {'keys': 'ALL', 'rows_per_partition': 'NONE'};
 
 -- Bảng lưu News từ Alpaca
@@ -42,7 +43,8 @@ CREATE TABLE IF NOT EXISTS news (
     'class': 'TimeWindowCompactionStrategy',
     'compaction_window_unit': 'DAYS',
     'compaction_window_size': 1
-  };
+  }
+  AND compression = {'class': 'LZ4Compressor', 'chunk_length_in_kb': 64};
 
 -- Bảng lưu raw Depth để test hiệu năng ghi
 CREATE TABLE IF NOT EXISTS depth (
@@ -58,5 +60,6 @@ CREATE TABLE IF NOT EXISTS depth (
     'compaction_window_unit': 'HOURS',
     'compaction_window_size': 1
   }
+  AND compression = {'class': 'LZ4Compressor', 'chunk_length_in_kb': 64}
   AND default_time_to_live = 300  -- 5 phút TTL
   AND gc_grace_seconds = 3600;      -- Giảm thời gian giữ tombstone để dọn dẹp sớm
