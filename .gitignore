@@ -4,5 +4,9 @@ __pycache__/
 # Môi trường (KHÔNG ĐƯỢC ĐẨY LÊN GITHUB)
 .env
 
-# MacOS
+# AI Models & Cache
+.cache/
+
+# Hệ điều hành
 .DS_Store
+Thumbs.db
