@@ -84,8 +84,8 @@ services:
       APP_ENV: production
       UVICORN_WORKERS: "2"
       REDIS_URL: redis://redis:6379/0
-      HF_HOME: /tmp/hf_cache
-      SENTENCE_TRANSFORMERS_HOME: /tmp/st_cache
+      PG_URL: postgresql://user:password@postgres:5432/market_data
+      CHROMA_HOST: chromadb
     volumes:
       - ./backend:/app
       - ./.cache:/home/appuser/.cache
@@ -141,6 +141,7 @@ services:
     environment:
       CASSANDRA_HOST: cassandra
       REDIS_URL: redis://redis:6379/0
+      PG_URL: postgresql://user:password@postgres:5432/market_data
       PYTHONPATH: /app
     depends_on:
       cassandra-init:
@@ -161,6 +162,7 @@ services:
     environment:
       CASSANDRA_HOST: cassandra
       REDIS_URL: redis://redis:6379/0
+      CHROMA_HOST: chromadb
       PYTHONPATH: /app
       HF_HOME: /tmp/hf_cache
       SENTENCE_TRANSFORMERS_HOME: /tmp/st_cache
