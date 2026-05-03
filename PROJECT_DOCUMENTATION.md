@@ -186,19 +186,40 @@ Dự án đã áp dụng toàn bộ các Best Practices chuẩn Production cho C
 Hệ thống được tích hợp sẵn công cụ Benchmarking trực tiếp để đo lường và so sánh hiệu năng thực tế giữa Apache Cassandra (Primary Time-Series DB) và PostgreSQL (Relational DB) thông qua giao diện.
 
 ### 5.1. Hiệu năng Ghi (Write Performance)
-Việc đánh giá tốc độ ghi được thực hiện trên khối lượng lớn dữ liệu nến (Klines) và sổ lệnh (Orderbook) thu thập mỗi phút (lên đến 40k bản ghi mỗi phút):
-- **Chế độ Tuần tự (Sequential Benchmarking):** Khi ép hệ thống ghi từng Batch một để đo đạc công bằng, **Cassandra (Acsylla)** hoàn thành 33k bản ghi trong khoảng **750ms**, nhanh hơn so với **PostgreSQL (900ms)**.
-- **Chế độ Song song (Parallel High-Speed):** Đây là sức mạnh thực sự của Cassandra. Khi bật `asyncio.gather`, tổng thời gian ghi cho 40k bản ghi giảm xuống mức "không tưởng" từ **2ms - 15ms** nhờ khả năng xử lý phân tán đồng thời.
-- **PostgreSQL:** Mặc dù sử dụng giao thức Binary COPY (`executemany` của `asyncpg`) thực thi ở tầng C rất nhanh, nhưng do tính chất nguyên khối (Monolithic), Postgres không thể tận dụng khả năng ghi song song đa luồng hiệu quả như Cassandra.
+Đo lường thời gian đổ dữ liệu thực tế (Lô ~40,000 bản ghi gồm Nến & Orderbook):
+
+| Lần đo | Cassandra (Parallel) | PostgreSQL (Bulk) |
+|:---:|:---:|:---:|
+| 1 | 116.50 ms | 1064.03 ms |
+| 2 | 381.37 ms | 1081.91 ms |
+| 3 | 105.53 ms | 874.58 ms |
+| 4 | 93.02 ms | 776.52 ms |
+| 5 | 104.06 ms | 792.00 ms |
+| **Trung bình** | **~160.10 ms** | **~917.80 ms** |
+
+**Nhận xét:**
+- **Cassandra:** Thể hiện sức mạnh áp đảo nhờ cơ chế ghi song song (Parallelism) thông qua Acsylla C++ Driver. Tốc độ ghi nhanh gấp **gần 6 lần** so với PostgreSQL. Ngay cả ở lần chạy chậm nhất (381ms), nó vẫn nhanh gấp 3 lần đối thủ.
+- **PostgreSQL:** Tốc độ ghi khá ổn định quanh mức 800ms-1s nhưng bị giới hạn bởi kiến trúc ghi tuần tự vào đĩa cứng, không thể bứt phá lên mức dưới 500ms cho khối lượng dữ liệu này.
 
 ### 5.2. Hiệu năng Đọc/Truy xuất (Read/Query Performance)
-Quá trình đánh giá tốc độ đọc được thực hiện thông qua các bài Test truy xuất đồng thời lịch sử của toàn bộ ~400+ mã giao dịch:
-- **Cassandra:** Hoàn thành truy vấn toàn bộ dữ liệu trong khoảng **0.2 - 0.4 giây**. Đây là điểm mạnh tuyệt đối của Cassandra nhờ khả năng quét song song cực nhanh thông qua `asyncio.gather` và kiến trúc phân tán ngang (Horizontally Scalable).
-- **PostgreSQL:** Tốc độ truy xuất đồng thời chậm hơn rõ rệt, dao động từ **1.5 - 2.5 giây** cho khối lượng tương tự. Do kiến trúc RDBMS truyền thống và cơ chế quản lý I/O, việc quét lượng lớn dữ liệu Time-Series không thể đạt hiệu suất như hệ thống NoSQL chuyên dụng.
+Đo lường thời gian truy xuất lịch sử (Lô ~90,000 dòng dữ liệu nến):
 
-**Kết luận:** Hệ thống đã chứng minh được sự lựa chọn công nghệ đúng đắn: 
-- **PostgreSQL** cực kỳ phù hợp cho các luồng Ghi (Bulk Insert) nguyên khối, siêu tốc cục bộ.
-- **Cassandra** lại là "vua" trong việc phân tán, lưu trữ Time-Series lâu dài và cung cấp khả năng Đọc/Truy xuất đồng thời (Parallel Reads) với độ trễ cực thấp để cấp liệu liên tục cho biểu đồ và AI Chatbot.
+| Lần đo | Cassandra | PostgreSQL |
+|:---:|:---:|:---:|
+| 1 | 102 ms | 185 ms |
+| 2 | 93 ms | 158 ms |
+| 3 | 118 ms | 141 ms |
+| 4 | 111 ms | 119 ms |
+| 5 | 89 ms | 126 ms |
+| **Trung bình** | **~102.6 ms** | **~145.8 ms** |
+
+**Nhận xét:**
+- **Cassandra:** Duy trì sự ổn định cực cao dưới 120ms. Do dữ liệu được sắp xếp vật lý theo thời gian (`Clustering Order`), việc đọc một dải nến dài là cực kỳ nhẹ nhàng với Cassandra.
+- **PostgreSQL:** Có xu hướng nhanh dần ở các lần đo sau (do cơ chế Shared Buffers/Caching của Postgres), nhưng vẫn chậm hơn Cassandra khoảng 40%.
+
+**Kết luận cuối cùng:**
+Hệ thống đã chứng minh Cassandra là lựa chọn "vô đối" cho bài toán Ingestion dữ liệu thị trường. Việc sử dụng Cassandra làm DB chính giúp UI không bao giờ bị trễ (lag) khi dữ liệu đổ về dồn dập, đồng thời cho phép người dùng kéo biểu đồ về quá khứ với độ phản hồi tức thì.
+PostgreSQL đóng vai trò là DB dự phòng và đối chứng, hoàn thành tốt nhiệm vụ lưu trữ bền vững nhưng không phù hợp để làm Database hiển thị thời gian thực cho quy mô dữ liệu lớn.
 
 ---
 
