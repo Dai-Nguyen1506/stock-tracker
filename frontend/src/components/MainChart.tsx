@@ -178,7 +178,9 @@ export const MainChart: React.FC<MainChartProps> = ({ selectedSymbol, selectedIn
       }
       
       if (sorted.length > 0) {
-          oldestTsRef.current = sorted[0].timestamp;
+          const newOldest = sorted[0].timestamp;
+          console.log(`[Chart] Received ${sorted.length} candles. New Oldest: ${newOldest}, Prev Oldest: ${oldestTsRef.current}`);
+          oldestTsRef.current = newOldest;
       }
       
       loadingMoreRef.current = false;

@@ -8,11 +8,12 @@ import httpx
 import acsylla
 from core.cassandra import get_session
 from core.redis_client import init_redis, get_redis
-from core.vector_db import get_news_collection
+from core.vector_db import get_news_collection, push_to_ai_vector_embedder
 from ingestion.discovery import run_discovery_bootstrap
 
 ALPACA_WS_URL = "wss://stream.data.alpaca.markets/v1beta1/news"
 _prepared_news_stmt = None
+_allowed_symbols = set() # Tập hợp các mã được phép xử lý
 
 async def init_prepared_statements(session):
     global _prepared_news_stmt
@@ -20,25 +21,6 @@ async def init_prepared_statements(session):
         _prepared_news_stmt = await session.create_prepared(
             "INSERT INTO market_data.news (symbol, date_bucket, timestamp, headline, summary, url, sentiment) VALUES (?, ?, ?, ?, ?, ?, ?)"
         )
-
-async def push_to_ai_vector_embedder(symbol, headline, summary, content, url, ts_ms):
-    collection = get_news_collection()
-    if not collection:
-        return
-        
-    doc_id = f"{symbol}_{ts_ms}"
-    text = f"HEADLINE: {headline}\nSUMMARY: {summary}\nCONTENT: {content}"
-    
-    try:
-        # ChromaDB default embedding function will embed the documents automatically
-        collection.upsert(
-            documents=[text],
-            metadatas=[{"symbol": symbol, "url": url, "timestamp": ts_ms, "headline": headline}],
-            ids=[doc_id]
-        )
-        print(f"🧠 Embedded news to ChromaDB for {symbol}")
-    except Exception as e:
-        print(f"❌ ChromaDB embed error: {e}")
 
 async def process_news_message(session, message_list):
     try:
@@ -57,6 +39,10 @@ async def process_news_message(session, message_list):
             sentiment = "Neutral"
 
             for symbol in symbols:
+                # BỘ LỌC: Chỉ xử lý nếu mã nằm trong danh sách cho phép
+                if symbol not in _allowed_symbols:
+                    continue
+                    
                 ts_ms = int(dt_now.timestamp() * 1000)
                 bound = _prepared_news_stmt.bind()
                 bound.bind_list([symbol, date_bucket, dt_now, headline, summary, url, sentiment])
@@ -84,21 +70,27 @@ async def process_news_message(session, message_list):
 async def get_last_news_timestamp(session):
     """Lấy timestamp của tin tức mới nhất trong database (toàn bộ các mã)"""
     # Vì bảng news partition theo (symbol, date_bucket), ta không thể query global đơn giản
-    # Ta sẽ check ngày hôm nay và ngày hôm qua cho một vài symbol phổ biến để ước lượng
-    check_symbols = ["BTC", "ETH", "AAPL", "TSLA"]
+    # Ta sẽ check trong vòng 7 ngày gần đây để tìm mốc cuối cùng app hoạt động
+    check_symbols = ["BTC", "ETH", "AAPL", "TSLA", "MSFT", "NVDA"]
     latest_ts = None
     
     dt_now = datetime.now(timezone.utc)
-    for i in range(2): # Check hôm nay và hôm qua
+    for i in range(7): # Tăng lên 7 ngày để bù đắp gap lâu hơn
         d = (dt_now - timedelta(days=i)).date()
         for s in check_symbols:
             try:
-                query = f"SELECT timestamp FROM market_data.news WHERE symbol='{s}' AND date_bucket='{d}' LIMIT 1"
+                # Query lấy tin mới nhất của symbol s trong ngày d
+                query = f"SELECT timestamp FROM market_data.news WHERE symbol='{s}' AND date_bucket='{d}' ORDER BY timestamp DESC LIMIT 1"
                 rows = await session.execute(query)
                 for r in rows:
                     ts = r.timestamp
                     if latest_ts is None or ts > latest_ts:
                         latest_ts = ts
+                
+                # Nếu đã tìm thấy tin trong ngày này, có thể coi là mốc tương đối ổn
+                if latest_ts and i == 0: 
+                    # Nếu thấy tin hôm nay rồi thì thoát sớm cho nhanh
+                    return latest_ts
             except:
                 continue
     return latest_ts
@@ -118,24 +110,51 @@ async def run_startup_news_backfill(session, symbols, api_key, secret_key):
     headers = {"APCA-API-KEY-ID": api_key, "APCA-API-SECRET-KEY": secret_key}
     
     if last_ts is None:
-        print("📡 [News Backfill] Database trống. Đang lấy 10 tin tức mới nhất làm vốn...")
-        # Lấy tin tức mới nhất của các symbols mục tiêu
+        # Nếu DB trống, mặc định lấy từ 7 ngày trước
+        start_time_dt = datetime.now(timezone.utc) - timedelta(days=7)
+        start_time = start_time_dt.strftime('%Y-%m-%dT%H:%M:%SZ')
+        print(f"📡 [News Backfill] Database trống. Đang lấy tin tức từ 7 ngày trước ({start_time})...")
+        
         chunk_size = 30
-        for i in range(0, min(len(symbols), 60), chunk_size): # Giới hạn 60 mã để init nhanh
-            chunk = symbols[i:i+chunk_size]
+        # Duyệt qua toàn bộ danh sách symbols (vì bạn nói chỉ khoảng 40 mã nên không cần giới hạn 60 nữa)
+        for i in range(0, len(symbols), chunk_size):
+            chunk = [s.upper().strip() for s in symbols[i:i+chunk_size] if s]
+            if not chunk: continue
+            
             syms_str = ",".join(chunk)
-            url = f"https://data.alpaca.markets/v1beta1/news?symbols={syms_str}&limit=10"
-            await fetch_and_store_news(session, url, headers)
+            url = f"https://data.alpaca.markets/v1beta1/news?symbols={syms_str}&start={start_time}&limit=50"
+            print(f"  📡 [News Backfill] Calling: {url}")
+            success = await fetch_and_store_news(session, url, headers)
+            
+            # Nếu gộp chung bị lỗi 400, thử lấy lẻ từng mã
+            if not success:
+                print(f"  ⚠️ Chunk failed, trying individual symbols for this chunk...")
+                for s in chunk:
+                    single_url = f"https://data.alpaca.markets/v1beta1/news?symbols={s}&start={start_time}&limit=20"
+                    await fetch_and_store_news(session, single_url, headers)
+                    await asyncio.sleep(0.2)
+            
+            await asyncio.sleep(0.5)
     else:
         print(f"🔄 [News Backfill] Đã có dữ liệu (Last: {last_ts}). Đang lấy tin bù đắp...")
         start_time = (last_ts + timedelta(seconds=1)).strftime('%Y-%m-%dT%H:%M:%SZ')
         
         chunk_size = 30
         for i in range(0, len(symbols), chunk_size):
-            chunk = symbols[i:i+chunk_size]
+            chunk = [s.upper().strip() for s in symbols[i:i+chunk_size] if s]
+            if not chunk: continue
+            
             syms_str = ",".join(chunk)
             url = f"https://data.alpaca.markets/v1beta1/news?symbols={syms_str}&start={start_time}&limit=50"
-            await fetch_and_store_news(session, url, headers)
+            print(f"  🔄 [News Backfill] Calling: {url}")
+            success = await fetch_and_store_news(session, url, headers)
+            
+            if not success:
+                for s in chunk:
+                    single_url = f"https://data.alpaca.markets/v1beta1/news?symbols={s}&start={start_time}&limit=20"
+                    await fetch_and_store_news(session, single_url, headers)
+                    await asyncio.sleep(0.2)
+
             await asyncio.sleep(0.5)
 
 async def fetch_and_store_news(session, url, headers):
@@ -145,7 +164,7 @@ async def fetch_and_store_news(session, url, headers):
             if res.status_code == 200:
                 news_data = res.json().get('news', [])
                 if not news_data:
-                    return
+                    return True
                 
                 print(f"  └─ Đã lấy {len(news_data)} tin tức.")
                 for n in news_data:
@@ -154,6 +173,10 @@ async def fetch_and_store_news(session, url, headers):
                     ts_ms = int(dt.timestamp() * 1000)
                     
                     for s in n.get('symbols', []):
+                        # BỘ LỌC: Chỉ xử lý nếu mã nằm trong danh sách cho phép
+                        if s not in _allowed_symbols:
+                            continue
+                            
                         bound = _prepared_news_stmt.bind()
                         headline = n.get('headline', '')
                         summary = n.get('summary', '')
@@ -163,8 +186,10 @@ async def fetch_and_store_news(session, url, headers):
                         bound.bind_list([s, dt.date(), dt, headline, summary, url_news, "Neutral"])
                         await session.execute(bound)
                         asyncio.create_task(push_to_ai_vector_embedder(s, headline, summary, content, url_news, ts_ms))
+                return True
             else:
-                print(f"  ❌ Lỗi API Alpaca: {res.status_code}")
+                print(f"  ❌ Lỗi API Alpaca: {res.status_code} - Body: {res.text}")
+                return False
     except Exception as e:
         print(f"  ❌ Lỗi fetch news: {e}")
 
@@ -175,6 +200,10 @@ async def run_news_stream(api_key, secret_key, symbols=["*"]):
 
     session = await get_session()
     await init_prepared_statements(session)
+    
+    # Cập nhật danh sách mã được phép toàn cục
+    global _allowed_symbols
+    _allowed_symbols = set(symbols)
     
     # 1. Chạy Backfill trước khi mở WebSocket
     await run_startup_news_backfill(session, symbols, api_key, secret_key)
@@ -208,10 +237,11 @@ async def main():
     
     discovery_data = await run_discovery_bootstrap()
     alpaca_crypto_symbols = [item["base"] for item in discovery_data["priority_list"]]
-    hot_stocks_for_test = ["AAPL", "TSLA", "MSFT", "NVDA", "SPY", "AMZN"]
-    target_symbols = alpaca_crypto_symbols + hot_stocks_for_test
     
-    print(f"🎯 Khởi chạy cùng danh sách: {target_symbols[:10]}... (Tổng: {len(target_symbols)} mã)")
+    # Chỉ tập trung vào Crypto, loại bỏ hoàn toàn danh sách stocks test cũ
+    target_symbols = alpaca_crypto_symbols
+    
+    print(f"🎯 Khởi chạy cùng danh sách Crypto: {target_symbols[:10]}... (Tổng: {len(target_symbols)} mã)")
     
     while True:
         try:

@@ -7,10 +7,35 @@ from datetime import datetime, timezone, timedelta
 from pydantic import BaseModel
 from core.cassandra import get_session
 from core.redis_client import get_redis
+from core.vector_db import push_to_ai_vector_embedder
 import os
 
 router = APIRouter()
 ws_router = APIRouter()
+
+# ── Prepared Statements Global ──
+_prepared_history_stmt = None
+_prepared_history_before_stmt = None
+_prepared_news_history_stmt = None
+_prepared_news_history_before_stmt = None
+
+async def init_market_prepared_statements(session):
+    global _prepared_history_stmt, _prepared_history_before_stmt
+    global _prepared_news_history_stmt, _prepared_news_history_before_stmt
+    
+    if _prepared_history_stmt is None:
+        _prepared_history_stmt = await session.create_prepared(
+            "SELECT timestamp, open, high, low, close, volume FROM market_data.klines WHERE symbol=? AND interval=? AND date_bucket=? ORDER BY timestamp DESC"
+        )
+        _prepared_history_before_stmt = await session.create_prepared(
+            "SELECT timestamp, open, high, low, close, volume FROM market_data.klines WHERE symbol=? AND interval=? AND date_bucket=? AND timestamp < ? ORDER BY timestamp DESC"
+        )
+        _prepared_news_history_stmt = await session.create_prepared(
+            "SELECT timestamp, headline, url FROM market_data.news WHERE symbol=? AND date_bucket=? ORDER BY timestamp DESC"
+        )
+        _prepared_news_history_before_stmt = await session.create_prepared(
+            "SELECT timestamp, headline, url FROM market_data.news WHERE symbol=? AND date_bucket=? AND timestamp < ? ORDER BY timestamp DESC"
+        )
 
 # ── REST API: Symbols ──
 @router.get("/symbols")
@@ -36,79 +61,117 @@ async def get_history(
     symbol = symbol.upper()
     session = await get_session()
     
-    dt_now = datetime.fromtimestamp(before_ts / 1000.0, timezone.utc) if before_ts else datetime.now(timezone.utc)
+    # Bảo vệ: Nếu before_ts quá lớn (ví dụ microseconds), đưa về milliseconds
+    if before_ts and before_ts > 10**14: 
+        before_ts = before_ts // 1000
+        
+    try:
+        dt_now = datetime.fromtimestamp(before_ts / 1000.0, timezone.utc) if before_ts else datetime.now(timezone.utc)
+    except (ValueError, OSError, OverflowError):
+        dt_now = datetime.now(timezone.utc)
     
     results = []
     days_back = 0
     max_days = 14 # Tăng lên 14 ngày để tìm dữ liệu cũ hơn trong Cassandra
     current_dt = dt_now
     
+    await init_market_prepared_statements(session)
+    
     while len(results) < limit and days_back < max_days:
-        # acsylla DATE type mong muốn object date hoặc int. Thử dùng .date()
         date_bucket = current_dt.date()
+        limit_needed = limit - len(results)
         
-        query = "SELECT timestamp, open, high, low, close, volume FROM market_data.klines WHERE symbol=? AND interval=? AND date_bucket=?"
-        params = [symbol, interval, date_bucket]
-        
-        # Sửa lỗi logic: Nếu là ngày đầu tiên (days_back == 0), ta lọc theo before_ts
-        # Nhưng nếu before_ts không có, ta lấy thoải mái.
-        if days_back == 0 and before_ts:
-            query += " AND timestamp < ?"
-            params.append(datetime.fromtimestamp(before_ts / 1000.0, timezone.utc))
+        try:
+            if days_back == 0 and before_ts:
+                bound = _prepared_history_before_stmt.bind()
+                bound.bind_list([symbol, interval, date_bucket, int(before_ts)])
+            else:
+                bound = _prepared_history_stmt.bind()
+                bound.bind_list([symbol, interval, date_bucket])
             
-        query += f" ORDER BY timestamp DESC LIMIT {limit - len(results)}"
-        
-        import acsylla
-        statement = acsylla.create_statement(query, parameters=params)
-        rows = await session.execute(statement)
-        
-        for r in rows:
-            results.append({
-                "timestamp": int(r.timestamp.timestamp() * 1000) if isinstance(r.timestamp, datetime) else r.timestamp,
-                "open": float(r.open),
-                "high": float(r.high),
-                "low": float(r.low),
-                "close": float(r.close),
-                "volume": float(r.volume),
-            })
+            rows = await session.execute(bound)
+            count = 0
+            for r in rows:
+                if count >= limit_needed:
+                    break
+                try:
+                    # Kiểm tra timestamp hợp lệ (phải nhỏ hơn năm 3000)
+                    ts_datetime = r.timestamp if isinstance(r.timestamp, datetime) else datetime.fromtimestamp(r.timestamp/1000.0, timezone.utc)
+                    if ts_datetime.year > 3000:
+                        continue # Bỏ qua dữ liệu "độc"
+                    
+                    ts_val = int(ts_datetime.timestamp() * 1000)
+                    results.append({
+                        "timestamp": ts_val,
+                        "open": float(r.open),
+                        "high": float(r.high),
+                        "low": float(r.low),
+                        "close": float(r.close),
+                        "volume": float(r.volume),
+                    })
+                    count += 1
+                except Exception:
+                    continue # Bỏ qua nếu có bất kỳ lỗi chuyển đổi nào
             
+        except Exception as e:
+            print(f"  ❌ Cassandra error for {date_bucket}: {e}")
+
         current_dt -= timedelta(days=1)
         days_back += 1
         
-    # --- FALLBACK TO BINANCE API IF INSUFFICIENT DATA IN CASSANDRA ---
+    # Loại bỏ trùng lặp và SẮP XẾP TĂNG DẦN (cũ nhất ở index 0)
+    final_merged = {x["timestamp"]: x for x in results}
+    sorted_results = sorted(final_merged.values(), key=lambda x: x["timestamp"])
+    
+    # LỌC NGHIÊM NGẶT: Chỉ lấy những nến THỰC SỰ NHỎ HƠN before_ts
+    if before_ts:
+        results = [r for r in sorted_results if r["timestamp"] < int(before_ts)]
+    else:
+        results = sorted_results
+    
+    # --- FALLBACK TO BINANCE API IF INSUFFICIENT DATA (Sau khi đã lọc) ---
     if len(results) < limit:
         needed = limit - len(results)
-        # Sử dụng before_ts gốc nếu có, nếu không lấy mốc cuối của results
+        # Sử dụng before_ts gốc nếu có, nếu không lấy mốc cũ nhất của results
         effective_before_ts = before_ts
         if not effective_before_ts and results:
-            effective_before_ts = results[-1]["timestamp"]
+            effective_before_ts = results[0]["timestamp"]
         elif not effective_before_ts:
-            # Nếu hoàn toàn không có gì, lấy mốc hiện tại
             effective_before_ts = int(time.time() * 1000)
             
-        print(f"⚠️ [History Fallback] Cassandra only has {len(results)}/{limit} for {symbol}. Fetching {needed} more from Binance...")
+        print(f"⚠️ [History Fallback] After filter, only have {len(results)}/{limit}. Fetching {needed} more from Binance (before={effective_before_ts})...")
         try:
             api_data = await fetch_binance_klines(symbol, interval, needed, effective_before_ts)
             if api_data:
-                # Gộp dữ liệu (Binance trả về DESC theo hàm của ta)
-                # Results đang là DESC, api_data cũng là DESC
-                results.extend(api_data)
-                # Lưu vào DB để lần sau có (chạy background)
+                # Gộp và lọc trùng lần cuối
+                merged = {x["timestamp"]: x for x in results}
+                for candle in api_data:
+                    if candle["timestamp"] not in merged:
+                        merged[candle["timestamp"]] = candle
+                results = sorted(merged.values(), key=lambda x: x["timestamp"])
+                
+                # Lưu vào DB để lần sau có
                 asyncio.create_task(backfill_klines_to_cassandra(symbol, interval, api_data))
         except Exception as e:
             print(f"❌ [History Fallback] Error: {e}")
-
+    
+    oldest_str = results[0]['timestamp'] if results else 'N/A'
+    newest_str = results[-1]['timestamp'] if results else 'N/A'
+    print(f"📊 [History] Trả về {len(results)} nến cho {symbol} | Range: {oldest_str} -> {newest_str}")
     return {"symbol": symbol, "interval": interval, "data": results}
 
 async def fetch_binance_klines(symbol, interval, limit, before_ts=None):
     url = f"https://api.binance.com/api/v3/klines?symbol={symbol}&interval={interval}&limit={limit}"
     if before_ts:
-        url += f"&endTime={before_ts - 1}" # Trừ 1ms để tránh lấy trùng nến tại mốc before_ts
+        # Dùng khoảng cách 1 giây (1000ms) để chắc chắn không bị trùng nến hiện tại
+        url += f"&endTime={int(before_ts) - 1000}"
         
     async with httpx.AsyncClient(timeout=30.0) as client:
+        print(f"  🌐 [Binance API] Calling: {url}")
         res = await client.get(url, timeout=10)
         res.raise_for_status()
         data = res.json()
+        print(f"  └─ Đã lấy {len(data)} nến từ Binance.")
         
         results = []
         for k in data:
@@ -133,13 +196,13 @@ async def backfill_klines_to_cassandra(symbol, interval, klines):
         )
         for k in klines:
             ts = k["timestamp"]
-            dt = datetime.fromtimestamp(ts/1000.0, timezone.utc)
-            date_bucket = dt.date()
+            # Sử dụng datetime object naive (không múi giờ) để bind vào Cassandra
+            dt_ts = datetime.fromtimestamp(ts/1000.0, timezone.utc).replace(tzinfo=None)
+            date_bucket = dt_ts.date()
             
-            # Helper format decimal to avoid scientific notation if needed, but float is okay for bind
             bound = stmt.bind()
             bound.bind_list([
-                symbol, interval, date_bucket, ts,
+                symbol, interval, date_bucket, dt_ts,
                 f"{k['open']:.10f}".rstrip('0').rstrip('.'),
                 f"{k['high']:.10f}".rstrip('0').rstrip('.'),
                 f"{k['low']:.10f}".rstrip('0').rstrip('.'),
@@ -171,12 +234,22 @@ async def backfill_news_to_cassandra(symbol, news_list):
         "INSERT INTO market_data.news (symbol, date_bucket, timestamp, headline, summary, url, sentiment) VALUES (?, ?, ?, ?, ?, ?, ?)"
     )
     for n in news_list:
-        ts = int(datetime.fromisoformat(n['created_at'].replace('Z', '+00:00')).timestamp() * 1000)
-        dt = datetime.fromtimestamp(ts/1000.0, timezone.utc)
-        date_bucket = dt.date()
+        dt_utc = datetime.fromisoformat(n['created_at'].replace('Z', '+00:00'))
+        ts = int(dt_utc.timestamp() * 1000)
+        dt_naive = dt_utc.replace(tzinfo=None)
+        date_bucket = dt_naive.date()
         bound = stmt.bind()
-        bound.bind_list([symbol, date_bucket, dt, n.get('headline', ''), n.get('summary', ''), n.get('url', ''), "Neutral"])
+        bound.bind_list([symbol, date_bucket.isoformat(), dt_naive, n.get('headline', ''), n.get('summary', ''), n.get('url', ''), "Neutral"])
         await session.execute(bound)
+        # Đồng thời lưu vào ChromaDB
+        await push_to_ai_vector_embedder(
+            symbol, 
+            n.get('headline', ''), 
+            n.get('summary', ''), 
+            n.get('content', ''), 
+            n.get('url', ''), 
+            ts
+        )
 
 # ── REST API: News History ──
 @router.get("/news/history")
@@ -196,24 +269,26 @@ async def get_news_history(
         
         print(f"📡 [News History] Querying for {symbol} (before_ts={before_ts})")
         
+        await init_market_prepared_statements(session)
+        
         while len(results) < limit and days_back < max_days:
             date_bucket = current_dt.date()
-            query = "SELECT timestamp, headline, url FROM market_data.news WHERE symbol=? AND date_bucket=?"
-            params = [symbol, date_bucket]
-            
-            # Chỉ áp dụng before_ts cho ngày đầu tiên của vòng lặp
-            if before_ts and days_back == 0:
-                query += " AND timestamp < ?"
-                params.append(datetime.fromtimestamp(before_ts / 1000.0, timezone.utc))
-            
-            query += " ALLOW FILTERING"
+            limit_needed = limit - len(results)
             
             try:
-                import acsylla
-                statement = acsylla.create_statement(query, parameters=params)
-                rows = await session.execute(statement)
+                if before_ts and days_back == 0:
+                    bound = _prepared_news_history_before_stmt.bind()
+                    bound.bind_list([symbol, date_bucket, int(before_ts)])
+                else:
+                    bound = _prepared_news_history_stmt.bind()
+                    bound.bind_list([symbol, date_bucket])
                 
+                rows = await session.execute(bound)
+                count = 0
                 for r in rows:
+                    if count >= limit_needed:
+                        break
+                    
                     # Acsylla trả về datetime cho TIMESTAMP, ta chuyển sang ms cho Frontend
                     ts_val = 0
                     if isinstance(r.timestamp, datetime):
@@ -227,6 +302,7 @@ async def get_news_history(
                         "url": r.url,
                         "symbol": symbol
                     })
+                    count += 1
             except Exception as e:
                 print(f"  ❌ Cassandra error for {date_bucket}: {e}")
                 

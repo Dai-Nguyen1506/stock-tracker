@@ -1,6 +1,5 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from groq import AsyncGroq
 from core.vector_db import get_news_collection
 from core.cassandra import get_session
 from core.redis_client import get_redis
@@ -73,24 +72,33 @@ async def chat_with_bot(req: ChatRequest):
     # Simple symbol extraction from query
     words = req.query.upper().replace(",", " ").replace("?", " ").replace(".", " ").split()
     
-    # Try to find a symbol in the query (e.g. BTC, ETH, SOL)
+    # Cố gắng tìm một mã giao dịch trong câu hỏi
     redis = get_redis()
+    symbol_from_query = False
     if redis:
         try:
             cached_symbols_json = await redis.get("market_symbols")
             if cached_symbols_json:
                 data = json.loads(cached_symbols_json)
                 all_bases = [item["base"].upper() for item in data.get("priority_list", [])] + [item["base"].upper() for item in data.get("remainder_list", [])]
-                found = False
+                
                 for w in words:
-                    for base in all_bases:
-                        if w == base or w == f"{base}USDT":
-                            full_symbol = f"{base}USDT"
-                            found = True
-                            break
-                    if found:
+                    # Ưu tiên khớp chính xác (ví dụ: 'VIC' thay vì 'VICTORY')
+                    if w in all_bases:
+                        full_symbol = f"{w}USDT"
+                        symbol_from_query = True
                         break
-        except Exception:
+                    # Khớp nếu nó là một phần của mã đầy đủ (ví dụ: BTC trong BTCUSDT)
+                    if not symbol_from_query:
+                        for base in all_bases:
+                             if w == f"{base}USDT":
+                                full_symbol = w
+                                symbol_from_query = True
+                                break
+                    if symbol_from_query:
+                        break
+        except Exception as e:
+            print(f"⚠️ Warning: Symbol detection failed: {e}")
             pass
 
     base_symbol = full_symbol.replace("USDT", "")
@@ -103,13 +111,28 @@ async def chat_with_bot(req: ChatRequest):
         try:
             count = collection.count()
             if count > 0:
-                n = min(5, count)
-                # Trả lại bộ lọc where để chỉ lấy tin tức đúng mã giao dịch
-                res = collection.query(query_texts=[req.query], n_results=n, where={"symbol": base_symbol})
+                # Lấy nhiều kết quả hơn một chút để lọc theo thời gian
+                n = 5
+                fetch_n = 15
+                query_params = {"query_texts": [req.query], "n_results": min(fetch_n, count)}
+                if symbol_from_query:
+                    query_params["where"] = {"symbol": base_symbol}
+
+                res = collection.query(**query_params)
+                
                 if res['documents'] and res['documents'][0]:
-                    news_list = []
+                    # Gộp tài liệu và metadata để sắp xếp
+                    combined = []
                     for doc, meta in zip(res['documents'][0], res['metadatas'][0]):
-                        ts_ms = meta.get("timestamp", 0)
+                        combined.append({"doc": doc, "meta": meta, "ts": meta.get("timestamp", 0)})
+                    
+                    # Sắp xếp theo timestamp giảm dần (mới nhất lên đầu)
+                    combined.sort(key=lambda x: x["ts"], reverse=True)
+                    
+                    news_list = []
+                    for item in combined[:n]:
+                        ts_ms = item["ts"]
+                        doc = item["doc"]
                         if ts_ms:
                             # Chuyển đổi timestamp sang giờ Việt Nam (UTC+7)
                             dt = datetime.fromtimestamp(ts_ms / 1000.0, timezone.utc) + timedelta(hours=7)
@@ -118,7 +141,9 @@ async def chat_with_bot(req: ChatRequest):
                         else:
                             news_list.append(f"- {doc}")
                     context_news = "\n".join(news_list)
-        except: pass
+        except Exception as e: 
+            print(f"⚠️ Warning: RAG query failed: {e}")
+            pass
 
     # 2. Lấy Giá (Cassandra)
     price_context = await get_recent_klines(full_symbol, req.interval)
@@ -149,37 +174,57 @@ CÂU HỎI MỚI NHẤT: {req.query}"""
         
     try:
         import httpx
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
         
-        # Format history for Gemini (user/model)
+        # Danh sách model theo thứ tự: 1. Quota trâu nhất -> 2. Thông minh, Quota cao
+        MODELS = [
+            "gemini-3.1-flash-lite-preview", 
+            "gemini-3.1-flash-preview",
+            "gemini-2.5-flash" # Chốt chặn cuối cùng
+        ]
+        
+        # Format history chuẩn cho Gemini (chỉ user/model)
         gemini_contents = []
-        # System prompt
-        gemini_contents.append({"role": "user", "parts": [{"text": system_prompt}]})
-        gemini_contents.append({"role": "model", "parts": [{"text": "Đã hiểu."}]})
-        
         for msg in req.history[:-1]:
             r = "user" if msg.get("role") == "user" else "model"
             gemini_contents.append({"role": r, "parts": [{"text": msg.get("text", "")}]})
+            
         gemini_contents.append({"role": "user", "parts": [{"text": user_content}]})
         
         payload = {
+            # Sử dụng system_instruction chuẩn của API thay vì fake history
+            "system_instruction": {
+                "parts": [{"text": system_prompt}]
+            },
             "contents": gemini_contents,
             "generationConfig": {
-                "temperature": 0.2,
+                "temperature": 0.2, # Giữ ở mức thấp để output tài chính có độ chính xác cao
                 "maxOutputTokens": 2048
             }
         }
+        
         async with httpx.AsyncClient() as h_client:
-            res = await h_client.post(url, json=payload, timeout=30.0)
-            res_data = res.json()
+            for model_name in MODELS:
+                url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={GEMINI_API_KEY}"
+                
+                res = await h_client.post(url, json=payload, timeout=30.0)
+                res_data = res.json()
+                
+                if res.status_code == 200:
+                    ai_text = res_data['candidates'][0]['content']['parts'][0]['text']
+                    return ChatResponse(response=ai_text)
+                    
+                elif res.status_code == 429:
+                    print(f"⚠️ [Fallback] Model {model_name} hết Quota. Đang chuyển sang model tiếp theo...")
+                    continue # Bỏ qua vòng lặp hiện tại, gọi model tiếp theo trong danh sách
+                    
+                else:
+                    gemini_error = res_data.get('error', {}).get('message', 'Unknown Gemini Error')
+                    print(f"❌ Gemini Error ({model_name}): {gemini_error}")
+                    return ChatResponse(response=f"Lỗi API từ {model_name}: {gemini_error}")
             
-            if res.status_code == 200:
-                ai_text = res_data['candidates'][0]['content']['parts'][0]['text']
-                return ChatResponse(response=ai_text)
-            else:
-                gemini_error = res_data.get('error', {}).get('message', 'Unknown Gemini Error')
-                print(f"❌ Gemini Error: {gemini_error}")
-                return ChatResponse(response=f"Lỗi API: {gemini_error}")
+            # Nếu chạy hết vòng lặp for mà code vẫn đến được đây -> Tất cả model đều hết Quota hoặc tèo
+            print("🚨 Cảnh báo: Tất cả các model dự phòng đều đã hết Quota!")
+            return ChatResponse(response="Hệ thống đang xử lý quá nhiều yêu cầu thị trường. Vui lòng thử lại sau khoảng 1 phút nhé.")
                 
     except Exception as e:
         print(f"❌ Exception in Chatbot: {e}")
