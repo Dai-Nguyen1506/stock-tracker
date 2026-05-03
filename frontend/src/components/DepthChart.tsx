@@ -125,33 +125,33 @@ export const DepthChart: React.FC<DepthChartProps> = ({ selectedSymbol }) => {
       <div style={{ flex: 1, display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '8px', overflowY: 'auto', minHeight: 0, paddingRight: '4px' }}>
         
         {/* Ô 1: Trade data */}
-        <div style={{ background: 'rgba(255,255,255,0.03)', padding: '10px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.05)', flexShrink: 0 }}>
-          <div style={{ fontSize: '10px', color: '#a1a1aa', marginBottom: '4px' }}>Candles Created</div>
-          <div style={{ fontSize: '16px', fontWeight: '700', color: '#3b82f6' }}>{tradeSpeed} <span style={{ fontSize: '10px', fontWeight: 'normal', color: '#52525b' }}>/ 1 min</span></div>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: 'rgba(59,130,246,0.05)', padding: '10px', borderRadius: '8px', border: '1px solid rgba(59,130,246,0.15)', flexShrink: 0 }}>
+          <div style={{ fontSize: '10px', color: '#3b82f6', marginBottom: '4px' }}>Candles Created</div>
+          <div style={{ fontSize: '18px', fontWeight: '700', color: '#3b82f6' }}>{tradeSpeed} <span style={{ fontSize: '10px', fontWeight: 'normal', color: '#52525b' }}>/ 1 min</span></div>
         </div>
 
         {/* Ô 2: Order book data */}
-        <div style={{ background: 'rgba(255,255,255,0.03)', padding: '10px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.05)', flexShrink: 0 }}>
-          <div style={{ fontSize: '10px', color: '#a1a1aa', marginBottom: '4px' }}>Depth Messages</div>
-          <div style={{ fontSize: '16px', fontWeight: '700', color: '#8b5cf6' }}>{depthSpeed} <span style={{ fontSize: '10px', fontWeight: 'normal', color: '#52525b' }}>/ 1 min</span></div>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: 'rgba(139,92,246,0.05)', padding: '10px', borderRadius: '8px', border: '1px solid rgba(139,92,246,0.15)', flexShrink: 0 }}>
+          <div style={{ fontSize: '10px', color: '#8b5cf6', marginBottom: '4px' }}>Depth Messages</div>
+          <div style={{ fontSize: '18px', fontWeight: '700', color: '#8b5cf6' }}>{depthSpeed} <span style={{ fontSize: '10px', fontWeight: 'normal', color: '#52525b' }}>/ 1 min</span></div>
         </div>
 
         {/* Ô 3: Total data */}
-        <div style={{ background: 'rgba(255,255,255,0.03)', padding: '10px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.05)', flexShrink: 0 }}>
-          <div style={{ fontSize: '10px', color: '#a1a1aa', marginBottom: '4px' }}>Total Records</div>
-          <div style={{ fontSize: '16px', fontWeight: '700', color: '#f59e0b' }}>{totalSpeed} <span style={{ fontSize: '10px', fontWeight: 'normal', color: '#52525b' }}>/ 1 min</span></div>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: 'rgba(245,158,11,0.05)', padding: '10px', borderRadius: '8px', border: '1px solid rgba(245,158,11,0.15)', flexShrink: 0 }}>
+          <div style={{ fontSize: '10px', color: '#f59e0b', marginBottom: '4px' }}>Total Records</div>
+          <div style={{ fontSize: '18px', fontWeight: '700', color: '#f59e0b' }}>{totalSpeed} <span style={{ fontSize: '10px', fontWeight: 'normal', color: '#52525b' }}>/ 1 min</span></div>
         </div>
 
         {/* Ô 4: Cassandra Latency */}
-        <div style={{ background: 'rgba(16,185,129,0.05)', padding: '10px', borderRadius: '8px', border: '1px solid rgba(16,185,129,0.15)', flexShrink: 0 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: 'rgba(16,185,129,0.05)', padding: '10px', borderRadius: '8px', border: '1px solid rgba(16,185,129,0.15)', flexShrink: 0 }}>
           <div style={{ fontSize: '10px', color: '#10b981', marginBottom: '4px' }}>Cassandra Write</div>
-          <div style={{ fontSize: '16px', fontWeight: '700', color: '#10b981' }}>{latency} <span style={{ fontSize: '10px', fontWeight: 'normal', color: '#52525b' }}>ms</span></div>
+          <div style={{ fontSize: '18px', fontWeight: '700', color: '#10b981' }}>{latency} <span style={{ fontSize: '10px', fontWeight: 'normal', color: '#52525b' }}>ms</span></div>
         </div>
 
         {/* Ô 5: Postgres Latency */}
-        <div style={{ background: 'rgba(244,63,94,0.05)', padding: '10px', borderRadius: '8px', border: '1px solid rgba(244,63,94,0.15)', flexShrink: 0 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: 'rgba(244,63,94,0.05)', padding: '10px', borderRadius: '8px', border: '1px solid rgba(244,63,94,0.15)', flexShrink: 0 }}>
           <div style={{ fontSize: '10px', color: '#f43f5e', marginBottom: '4px' }}>Postgres Write</div>
-          <div style={{ fontSize: '16px', fontWeight: '700', color: '#f43f5e' }}>{pgLatency} <span style={{ fontSize: '10px', fontWeight: 'normal', color: '#52525b' }}>ms</span></div>
+          <div style={{ fontSize: '18px', fontWeight: '700', color: '#f43f5e' }}>{pgLatency} <span style={{ fontSize: '10px', fontWeight: 'normal', color: '#52525b' }}>ms</span></div>
         </div>
       </div>
 

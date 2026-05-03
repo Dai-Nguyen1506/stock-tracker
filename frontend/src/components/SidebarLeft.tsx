@@ -111,7 +111,7 @@ export const SidebarLeft: React.FC<SidebarLeftProps> = ({ news: liveNews, select
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column', gap: '12px', overflow: 'hidden' }}>
       
       {/* KHUNG TIN TỨC: ÉP CỨNG TỈ LỆ 55% */}
-      <div className="glass-panel" style={{ height: '55%', display: 'flex', flexDirection: 'column', padding: '12px', overflow: 'hidden', flexShrink: 0 }}>
+      <div className="glass-panel" style={{ position: 'relative', height: '55%', display: 'flex', flexDirection: 'column', padding: '12px', overflow: 'hidden', flexShrink: 0 }}>
         <h3 style={{ fontSize: '13px', fontWeight: '700', color: '#f8fafc', marginBottom: '8px' }}>📰 News Feed</h3>
         <div ref={scrollRef} style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '6px' }}>
           {initialLoading ? <div style={{ textAlign: 'center', fontSize: '11px', color: '#52525b', padding: '20px' }}>Loading news...</div> :
@@ -139,7 +139,7 @@ export const SidebarLeft: React.FC<SidebarLeftProps> = ({ news: liveNews, select
         {/* Global News Popup (Toast) */}
         {toastNews && (
           <div style={{
-            position: 'absolute', bottom: '46%', left: '12px', right: '12px',
+            position: 'absolute', bottom: '12px', left: '12px', right: '12px',
             background: 'rgba(16, 185, 129, 0.95)', padding: '10px 12px', borderRadius: '8px',
             boxShadow: '0 4px 12px rgba(0,0,0,0.3)', zIndex: 10, animation: 'slide-up 0.3s ease-out'
           }}>

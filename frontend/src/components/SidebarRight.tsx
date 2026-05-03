@@ -108,7 +108,11 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({ selectedSymbol, onSe
     setTesting(true);
     setTestResult(null);
     try {
-      const res = await fetch(`${API_BASE_URL}/api/v1/market/postgres/copy?symbol=${selectedSymbol}&interval=${testInterval}`, { method: 'POST' });
+      const res = await fetch(`${API_BASE_URL}/api/v1/market/postgres/copy`, { 
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ symbol: selectedSymbol, interval: testInterval, start_date: testStartDate, end_date: testEndDate })
+      });
       const data = await res.json();
       setTestResult({ error: data.status, readMs: data.write_ms, rows: '-' }); // Using error field just to display status text for now
     } catch {
@@ -122,7 +126,11 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({ selectedSymbol, onSe
     setTesting(true);
     setTestResult(null);
     try {
-      const res = await fetch(`${API_BASE_URL}/api/v1/market/postgres/ping?symbol=${selectedSymbol}&interval=${testInterval}`, { method: 'POST' });
+      const res = await fetch(`${API_BASE_URL}/api/v1/market/postgres/ping`, { 
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ symbol: selectedSymbol, interval: testInterval, start_date: testStartDate, end_date: testEndDate })
+      });
       const data = await res.json();
       if (data.error) {
         setTestResult({ error: data.error });

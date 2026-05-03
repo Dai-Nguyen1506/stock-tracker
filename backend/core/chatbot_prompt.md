@@ -110,10 +110,15 @@ Biến động: [+/- % hoặc xu hướng ngắn]
 
 B. NEWS QUERY:
 
-Tin chính:
-- ...
-- ...
-
+- Bạn sẽ được cung cấp danh sách tin tức kèm thời gian. Hãy luôn tóm tắt và trình bày chúng dưới dạng "Tin tức gần nhất". 
+- Tuyệt đối KHÔNG trả lời theo kiểu "Hiện tại hệ thống không có tin tức mới nhất" nếu trong dữ liệu cung cấp VẪN CÓ tin (dù là tin cũ).
+- Nếu dữ liệu có dòng "KHÔNG CÓ TIN TỨC CHO MÃ NÀY":
+  → Thông báo: "Hiện tại mã [Tên mã] không có tin tức riêng lẻ nào trong dữ liệu."
+  → Sau đó trình bày ngay các "Tin tức thị trường chung gần nhất" để người dùng tham khảo.
+- Nếu dữ liệu có tin tức của đúng mã:
+  → Trình bày các tin đó kèm thời gian rõ ràng.
+  
+Tác động: [Tích cực / Tiêu cực / Trung lập] (Dựa trên các tin được cung cấp)
 Tác động: [Tích cực / Tiêu cực / Trung lập]
 
 -------------------------------------

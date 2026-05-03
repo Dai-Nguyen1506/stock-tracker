@@ -355,31 +355,51 @@ async def test_ping(request: PingTestRequest):
         return {"error": str(e), "trace": traceback.format_exc()}
 
 @router.post("/postgres/copy")
-async def postgres_copy(
-    symbol: str = Query("BTCUSDT", description="Mã cần copy"),
-    interval: str = Query("1m", description="Khung thời gian nến")
-):
+async def postgres_copy(request: PingTestRequest):
     try:
-        symbol = symbol.upper()
+        symbol = request.symbol.upper()
+        interval = request.interval
         # Lấy từ Cassandra trước
         session = await get_session()
-        cql = "SELECT timestamp, open, high, low, close, volume, date_bucket FROM market_data.klines WHERE symbol=? AND interval=? ALLOW FILTERING"
         import acsylla
-        stmt = acsylla.create_statement(cql, parameters=[symbol, interval])
-        stmt.set_page_size(50000)
+        from datetime import datetime, timedelta
+        
+        start_dt = datetime.strptime(request.start_date, "%Y-%m-%d").date() if request.start_date else None
+        end_dt = datetime.strptime(request.end_date, "%Y-%m-%d").date() if request.end_date else None
         
         all_rows = []
-        has_more = True
-        while has_more:
-            res = await session.execute(stmt)
-            for r in res:
-                ts = r.timestamp if isinstance(r.timestamp, int) else int(r.timestamp.timestamp() * 1000)
-                all_rows.append((symbol, interval, r.date_bucket, ts, str(r.open), str(r.high), str(r.low), str(r.close), str(r.volume)))
-            
-            if res.has_more_pages():
-                stmt.set_page_state(res.page_state())
-            else:
-                has_more = False
+        if start_dt and end_dt:
+            curr = start_dt
+            while curr <= end_dt:
+                cql = "SELECT timestamp, open, high, low, close, volume, date_bucket FROM market_data.klines WHERE symbol=? AND interval=? AND date_bucket=?"
+                stmt = acsylla.create_statement(cql, parameters=[symbol, interval, curr])
+                stmt.set_page_size(50000)
+                has_more = True
+                while has_more:
+                    res = await session.execute(stmt)
+                    for r in res:
+                        ts = r.timestamp if isinstance(r.timestamp, int) else int(r.timestamp.timestamp() * 1000)
+                        all_rows.append((symbol, interval, r.date_bucket, ts, str(r.open), str(r.high), str(r.low), str(r.close), str(r.volume)))
+                    if res.has_more_pages():
+                        stmt.set_page_state(res.page_state())
+                    else:
+                        has_more = False
+                curr += timedelta(days=1)
+        else:
+            # Fallback if no dates provided
+            cql = "SELECT timestamp, open, high, low, close, volume, date_bucket FROM market_data.klines WHERE symbol=? AND interval=? ALLOW FILTERING"
+            stmt = acsylla.create_statement(cql, parameters=[symbol, interval])
+            stmt.set_page_size(50000)
+            has_more = True
+            while has_more:
+                res = await session.execute(stmt)
+                for r in res:
+                    ts = r.timestamp if isinstance(r.timestamp, int) else int(r.timestamp.timestamp() * 1000)
+                    all_rows.append((symbol, interval, r.date_bucket, ts, str(r.open), str(r.high), str(r.low), str(r.close), str(r.volume)))
+                if res.has_more_pages():
+                    stmt.set_page_state(res.page_state())
+                else:
+                    has_more = False
 
         if not all_rows:
             return {"status": "Không có dữ liệu Cassandra để copy"}
@@ -391,6 +411,12 @@ async def postgres_copy(
         
         t0 = time.time()
         async with pool.acquire() as conn:
+            # XÓA DỮ LIỆU CŨ TRƯỚC KHI COPY ĐỂ TRÁNH TRÙNG LẶP HOẶC TÍNH SAI
+            if start_dt and end_dt:
+                await conn.execute("DELETE FROM klines WHERE symbol=$1 AND interval=$2 AND date_bucket >= $3 AND date_bucket <= $4", symbol, interval, start_dt, end_dt)
+            else:
+                await conn.execute("DELETE FROM klines WHERE symbol=$1 AND interval=$2", symbol, interval)
+            
             await conn.executemany(
                 "INSERT INTO klines (symbol, interval, date_bucket, timestamp, open, high, low, close, volume) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) ON CONFLICT DO NOTHING", 
                 all_rows
@@ -405,20 +431,27 @@ async def postgres_copy(
         return {"status": f"Lỗi copy: {str(e)}"}
 
 @router.post("/postgres/ping")
-async def postgres_ping(
-    symbol: str = Query("BTCUSDT", description="Mã giao dịch"),
-    interval: str = Query("1m", description="Khung thời gian nến")
-):
+async def postgres_ping(request: PingTestRequest):
     try:
         from core.postgres import get_pg_pool
         import time
-        symbol = symbol.upper()
+        from datetime import datetime
+        symbol = request.symbol.upper()
+        interval = request.interval
         pool = await get_pg_pool()
         t0 = time.time()
         
-        # Read toàn bộ
+        query = "SELECT * FROM klines WHERE symbol=$1 AND interval=$2"
+        params = [symbol, interval]
+        
+        if request.start_date and request.end_date:
+            start_dt = datetime.strptime(request.start_date, "%Y-%m-%d").date()
+            end_dt = datetime.strptime(request.end_date, "%Y-%m-%d").date()
+            query += " AND date_bucket >= $3 AND date_bucket <= $4"
+            params.extend([start_dt, end_dt])
+            
         async with pool.acquire() as conn:
-            rows = await conn.fetch("SELECT * FROM klines WHERE symbol=$1 AND interval=$2", symbol, interval)
+            rows = await conn.fetch(query, *params)
             total_rows = len(rows)
             
         t1 = time.time()

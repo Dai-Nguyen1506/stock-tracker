@@ -10,8 +10,8 @@ import json
 import os
 
 router = APIRouter()
-GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
-client = AsyncGroq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
+# Xóa Groq vì gặp lỗi 403, chỉ sử dụng Gemini
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 
 class ChatRequest(BaseModel):
     query: str
@@ -67,14 +67,11 @@ def load_system_prompt():
 
 @router.post("")
 async def chat_with_bot(req: ChatRequest):
-    if not client:
-        raise HTTPException(status_code=500, detail="Groq API Key is missing")
 
     full_symbol = req.symbol.upper() if req.symbol else "BTCUSDT"
     
     # Simple symbol extraction from query
-    words = req.query.upper().split()
-    possible_crypto = [w for w in words if len(w) >= 2 and w.isalpha()]
+    words = req.query.upper().replace(",", " ").replace("?", " ").replace(".", " ").split()
     
     # Try to find a symbol in the query (e.g. BTC, ETH, SOL)
     redis = get_redis()
@@ -84,9 +81,14 @@ async def chat_with_bot(req: ChatRequest):
             if cached_symbols_json:
                 data = json.loads(cached_symbols_json)
                 all_bases = [item["base"].upper() for item in data.get("priority_list", [])] + [item["base"].upper() for item in data.get("remainder_list", [])]
-                for w in possible_crypto:
-                    if w in all_bases:
-                        full_symbol = f"{w}USDT"
+                found = False
+                for w in words:
+                    for base in all_bases:
+                        if w == base or w == f"{base}USDT":
+                            full_symbol = f"{base}USDT"
+                            found = True
+                            break
+                    if found:
                         break
         except Exception:
             pass
@@ -103,9 +105,19 @@ async def chat_with_bot(req: ChatRequest):
             if count > 0:
                 n = min(5, count)
                 # Trả lại bộ lọc where để chỉ lấy tin tức đúng mã giao dịch
-                res = collection.query(query_texts=[req.query], n_results=n, where={"symbol": full_symbol})
+                res = collection.query(query_texts=[req.query], n_results=n, where={"symbol": base_symbol})
                 if res['documents'] and res['documents'][0]:
-                    context_news = "\n".join([f"- {doc}" for doc in res['documents'][0]])
+                    news_list = []
+                    for doc, meta in zip(res['documents'][0], res['metadatas'][0]):
+                        ts_ms = meta.get("timestamp", 0)
+                        if ts_ms:
+                            # Chuyển đổi timestamp sang giờ Việt Nam (UTC+7)
+                            dt = datetime.fromtimestamp(ts_ms / 1000.0, timezone.utc) + timedelta(hours=7)
+                            time_str = dt.strftime("%H:%M %d/%m/%Y")
+                            news_list.append(f"- [Lúc {time_str}] {doc}")
+                        else:
+                            news_list.append(f"- {doc}")
+                    context_news = "\n".join(news_list)
         except: pass
 
     # 2. Lấy Giá (Cassandra)
@@ -131,60 +143,45 @@ CÂU HỎI MỚI NHẤT: {req.query}"""
         messages.append({"role": msg.get("role", "user"), "content": msg.get("text", "")})
     messages.append({"role": "user", "content": user_content})
 
-    # --- Provider 1: Groq ---
-    try:
-        completion = await client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
-            messages=messages,
-            temperature=0.2,
-            max_tokens=2048
-        )
-        return ChatResponse(response=completion.choices[0].message.content)
-    except Exception as groq_e:
-        error_msg = str(groq_e)
-        print(f"⚠️ Groq Error: {error_msg}")
+    # --- Provider: Gemini ---
+    if not GEMINI_API_KEY:
+        return ChatResponse(response="Lỗi hệ thống: Chưa cấu hình GEMINI_API_KEY. Vui lòng kiểm tra lại cấu hình môi trường.")
         
-        # --- Provider 2: Gemini Fallback ---
-        gemini_key = os.getenv("GEMINI_API_KEY", "")
-        if gemini_key:
-            print("🔄 Falling back to Gemini...")
-            try:
-                import httpx
-                url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={gemini_key}"
+    try:
+        import httpx
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
+        
+        # Format history for Gemini (user/model)
+        gemini_contents = []
+        # System prompt
+        gemini_contents.append({"role": "user", "parts": [{"text": system_prompt}]})
+        gemini_contents.append({"role": "model", "parts": [{"text": "Đã hiểu."}]})
+        
+        for msg in req.history[:-1]:
+            r = "user" if msg.get("role") == "user" else "model"
+            gemini_contents.append({"role": r, "parts": [{"text": msg.get("text", "")}]})
+        gemini_contents.append({"role": "user", "parts": [{"text": user_content}]})
+        
+        payload = {
+            "contents": gemini_contents,
+            "generationConfig": {
+                "temperature": 0.2,
+                "maxOutputTokens": 2048
+            }
+        }
+        async with httpx.AsyncClient() as h_client:
+            res = await h_client.post(url, json=payload, timeout=30.0)
+            res_data = res.json()
+            
+            if res.status_code == 200:
+                ai_text = res_data['candidates'][0]['content']['parts'][0]['text']
+                return ChatResponse(response=ai_text)
+            else:
+                gemini_error = res_data.get('error', {}).get('message', 'Unknown Gemini Error')
+                print(f"❌ Gemini Error: {gemini_error}")
+                return ChatResponse(response=f"Lỗi API: {gemini_error}")
                 
-                # Format history for Gemini (user/model)
-                gemini_contents = []
-                # System prompt + initial context
-                gemini_contents.append({"role": "user", "parts": [{"text": system_prompt}]})
-                gemini_contents.append({"role": "model", "parts": [{"text": "Understood."}]})
-                
-                for msg in req.history[:-1]:
-                    r = "user" if msg.get("role") == "user" else "model"
-                    gemini_contents.append({"role": r, "parts": [{"text": msg.get("text", "")}]})
-                gemini_contents.append({"role": "user", "parts": [{"text": user_content}]})
-                
-                payload = {
-                    "contents": gemini_contents,
-                    "generationConfig": {
-                        "temperature": 0.2,
-                        "maxOutputTokens": 2048
-                    }
-                }
-                async with httpx.AsyncClient() as h_client:
-                    res = await h_client.post(url, json=payload, timeout=30.0)
-                    res_data = res.json()
-                    
-                    if res.status_code == 200:
-                        ai_text = res_data['candidates'][0]['content']['parts'][0]['text']
-                        return ChatResponse(response=ai_text)
-                    else:
-                        gemini_error = res_data.get('error', {}).get('message', 'Unknown Gemini Error')
-                        print(f"❌ Gemini Error: {gemini_error}")
-            except Exception as gem_e:
-                print(f"❌ Gemini Exception: {gem_e}")
-
-        # Nếu cả 2 đều lỗi hoặc không có Gemini Key
-        if "403" in error_msg:
-            return ChatResponse(response="Lỗi 403 (Access Denied) từ Groq. Điều này thường do IP của bạn bị chặn hoặc giới hạn vùng địa lý. Tôi đã thử chuyển sang Gemini nhưng cũng không thành công. Vui lòng kiểm tra lại API Key hoặc VPN.")
-        return ChatResponse(response=f"AI Error: {error_msg}")
+    except Exception as e:
+        print(f"❌ Exception in Chatbot: {e}")
+        return ChatResponse(response=f"AI Error: {str(e)}")
 
