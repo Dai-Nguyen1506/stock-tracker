@@ -9,7 +9,6 @@ import json
 import os
 
 router = APIRouter()
-# Xóa Groq vì gặp lỗi 403, chỉ sử dụng Gemini
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 
 class ChatRequest(BaseModel):
@@ -175,7 +174,7 @@ CÂU HỎI MỚI NHẤT: {req.query}"""
     try:
         import httpx
         
-        # Danh sách model theo thứ tự: 1. Quota trâu nhất -> 2. Thông minh, Quota cao
+        # Danh sách models gemini
         MODELS = [
             "gemini-3.1-flash-lite-preview", 
             "gemini-3.1-flash-preview",

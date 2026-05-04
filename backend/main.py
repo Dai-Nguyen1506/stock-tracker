@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from contextlib import asynccontextmanager
-from routers import stocks, crypto, market, chat
+from routers import market, chat
 from core.redis_client import init_redis, close_redis, get_redis
 from core.postgres import init_pg
 from core.cassandra import get_session, close_session
@@ -54,8 +54,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(stocks.router, prefix="/api/v1/stocks", tags=["Stocks"])
-app.include_router(crypto.router, prefix="/api/v1/crypto", tags=["Crypto"])
+
 app.include_router(market.router, prefix="/api/v1/market", tags=["Market"])
 app.include_router(market.ws_router, prefix="/ws", tags=["WebSockets"])
 app.include_router(chat.router, prefix="/api/v1/chat", tags=["Chatbot"])
