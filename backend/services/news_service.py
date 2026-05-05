@@ -4,6 +4,7 @@ from datetime import datetime, timezone, timedelta
 import calendar
 from repositories.news_repo import NewsRepository
 from core.vector_db import push_to_ai_vector_embedder
+from core.redis_client import get_redis
 from core.logger import logger
 from core.config import settings
 
@@ -50,8 +51,18 @@ class NewsService:
     async def _ensure_month_data(self, symbol: str, year: int, month: int):
         """
         Checks if the specified month has data in Cassandra. If not, fetches from Alpaca.
+        Uses a distributed lock to ensure only one sync process runs at a time for a given month/symbol.
         """
         try:
+            redis_client = get_redis()
+            sync_key = f"news:sync:{symbol}:{year}:{month}"
+            lock_key = f"news:sync_lock:{symbol}:{year}:{month}"
+            
+            is_synced = await redis_client.get(sync_key)
+            if is_synced:
+                logger.debug(f"[News] Month {year}-{month} ({symbol}) is already synced. Skipping.")
+                return
+
             check_dates = [
                 datetime(year, month, 1).date().isoformat(),
                 datetime(year, month, 15).date().isoformat()
@@ -65,30 +76,45 @@ class NewsService:
                     break
             
             if not has_data:
-                logger.info(f"[News] Missing data for {year}-{month} ({symbol}). Fetching from Alpaca...")
-                start_date = datetime(year, month, 1, tzinfo=timezone.utc)
-                last_day = calendar.monthrange(year, month)[1]
-                end_date = datetime(year, month, last_day, 23, 59, 59, tzinfo=timezone.utc)
-                
-                api_news = await self.fetch_alpaca_news(symbol, limit=50, start=start_date, end=end_date)
-                if api_news:
-                    await self.backfill_news(symbol, api_news)
-                    logger.info(f"[News] Successfully backfilled {len(api_news)} items for {year}-{month}")
+                if await redis_client.set(lock_key, "1", ex=60, nx=True):
+                    logger.info(f"[News] Missing data for {year}-{month} ({symbol}). Fetching from Alpaca...")
+                    start_date = datetime(year, month, 1, tzinfo=timezone.utc)
+                    last_day = calendar.monthrange(year, month)[1]
+                    end_date = datetime(year, month, last_day, 23, 59, 59, tzinfo=timezone.utc)
+                    
+                    api_news = await self.fetch_alpaca_news(symbol, limit=50, start=start_date, end=end_date)
+                    if api_news:
+                        await self.backfill_news(symbol, api_news)
+                        logger.info(f"[News] Successfully backfilled {len(api_news)} items for {year}-{month}")
+                        asyncio.create_task(self._sync_month_to_vector_db(symbol, year, month))
+                    else:
+                        # Release lock if no news found so we can try again later
+                        await redis_client.delete(lock_key)
             else:
-                logger.debug(f"[News] Month {year}-{month} exists. Triggering VectorDB sync...")
-                asyncio.create_task(self._sync_month_to_vector_db(symbol, year, month))
+                # Data exists, try to get sync lock
+                if await redis_client.set(lock_key, "1", ex=300, nx=True):
+                    logger.info(f"[News] Month {year}-{month} ({symbol}) exists. Triggering single sync task...")
+                    asyncio.create_task(self._sync_month_to_vector_db(symbol, year, month))
+                else:
+                    logger.debug(f"[News] Sync already in progress for {year}-{month} ({symbol}).")
         except Exception as e:
             logger.error(f"[News] Proactive check failed for {year}-{month}: {e}")
 
     async def _sync_month_to_vector_db(self, symbol: str, year: int, month: int):
         """
         Fetches a month of news from Cassandra and ensures it's indexed in ChromaDB.
+        Sets a flag in Redis to avoid re-syncing for 24 hours.
         """
+        lock_key = f"news:sync_lock:{symbol}:{year}:{month}"
         try:
+            redis_client = get_redis()
+            sync_key = f"news:sync:{symbol}:{year}:{month}"
+            
             results = await self._fetch_month_from_cassandra(symbol, year, month)
             if not results:
                 return
                 
+            logger.info(f"[VectorDB] Syncing {len(results)} items for {symbol} ({year}-{month})...")
             for item in results:
                 await push_to_ai_vector_embedder(
                     symbol=symbol,
@@ -98,9 +124,18 @@ class NewsService:
                     url=item['url'],
                     ts_ms=item['timestamp']
                 )
-            logger.info(f"🔄 [VectorDB] Synced {len(results)} items for {year}-{month} ({symbol})")
+            
+            # Set flag with 24h expiration
+            await redis_client.setex(sync_key, 86400, "1")
+            logger.info(f"[VectorDB] Sync complete for {symbol} ({year}-{month})")
         except Exception as e:
             logger.error(f"[VectorDB] Sync failed for {year}-{month}: {e}")
+        finally:
+            try:
+                redis_client = get_redis()
+                await redis_client.delete(lock_key)
+            except:
+                pass
 
     async def _fetch_month_from_cassandra(self, symbol: str, year: int, month: int, before_ts: int = None) -> list:
         """Retrieves all news for a specific month from Cassandra."""

@@ -28,6 +28,9 @@ export const SidebarLeft: React.FC<SidebarLeftProps> = ({ news: liveNews, select
   const [initialLoading, setInitialLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   
+  // Cache to store news sections and cursors per symbol
+  const newsCacheRef = useRef<Record<string, { sections: NewsSection[], cursor: {year: number, month: number} | null }>>({});
+  
   const currentCursorRef = useRef<{year: number, month: number} | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const chatScrollRef = useRef<HTMLDivElement>(null);
@@ -37,10 +40,27 @@ export const SidebarLeft: React.FC<SidebarLeftProps> = ({ news: liveNews, select
   const [isChatLoading, setIsChatLoading] = useState(false);
   const [toastNews, setToastNews] = useState<NewsItem | null>(null);
 
-  const fetchMonth = async (year?: number, month?: number, isStartup: boolean = false) => {
+  const fetchMonth = async (year?: number, month?: number, isStartup: boolean = false, depth: number = 0) => {
+    // Safety limit: Don't go back more than 12 months automatically
+    if (depth > 12) {
+        setInitialLoading(false);
+        return;
+    }
+
     const isLoadMore = !isStartup;
     if (isLoadMore) setLoadingMore(true);
-    else setInitialLoading(true);
+    else {
+        // If we have cache for this symbol and we are starting fresh (startup), show cache immediately
+        const cached = newsCacheRef.current[selectedSymbol];
+        if (cached && !year && !month) {
+            setSections(cached.sections);
+            currentCursorRef.current = cached.cursor;
+            setInitialLoading(false);
+            // We still fetch in background to refresh? Let's skip for speed, user can Load More if needed.
+            return;
+        }
+        setInitialLoading(true);
+    }
 
     const baseSymbol = selectedSymbol.replace('USDT', '');
     let url = `${API}/news/history?symbol=${baseSymbol}&limit=20`;
@@ -57,12 +77,16 @@ export const SidebarLeft: React.FC<SidebarLeftProps> = ({ news: liveNews, select
         };
 
         setSections(prev => {
-            // Avoid duplicate sections
             if (prev.some(s => s.year === newSection.year && s.month === newSection.month)) return prev;
-            return [...prev, newSection];
+            const updated = [...prev, newSection];
+            // Save to cache
+            newsCacheRef.current[selectedSymbol] = {
+                sections: updated,
+                cursor: currentCursorRef.current
+            };
+            return updated;
         });
 
-        // Update cursor for next fetch
         let nextYear = newSection.year;
         let nextMonth = newSection.month - 1;
         if (nextMonth === 0) {
@@ -71,9 +95,9 @@ export const SidebarLeft: React.FC<SidebarLeftProps> = ({ news: liveNews, select
         }
         currentCursorRef.current = { year: nextYear, month: nextMonth };
 
-        // STARTUP LOGIC: If current month is empty, automatically fetch previous month
+        // Recursive backfill for startup if no items found, with depth limit
         if (isStartup && newSection.items.length === 0) {
-            await fetchMonth(nextYear, nextMonth, true);
+            await fetchMonth(nextYear, nextMonth, true, depth + 1);
         }
     } catch (e) {
         console.error("Fetch news error", e);
@@ -84,9 +108,16 @@ export const SidebarLeft: React.FC<SidebarLeftProps> = ({ news: liveNews, select
   };
 
   useEffect(() => {
-    setSections([]);
-    currentCursorRef.current = null;
-    fetchMonth(undefined, undefined, true);
+    const cached = newsCacheRef.current[selectedSymbol];
+    if (cached) {
+        setSections(cached.sections);
+        currentCursorRef.current = cached.cursor;
+        setInitialLoading(false);
+    } else {
+        setSections([]);
+        currentCursorRef.current = null;
+        fetchMonth(undefined, undefined, true);
+    }
   }, [selectedSymbol]);
 
   const handleLoadMore = () => {
@@ -248,17 +279,56 @@ export const SidebarLeft: React.FC<SidebarLeftProps> = ({ news: liveNews, select
         </div>
         
         {toastNews && (
-          <div style={{
-            position: 'absolute', bottom: '12px', left: '12px', right: '12px',
-            background: 'rgba(16, 185, 129, 0.95)', padding: '10px 12px', borderRadius: '8px',
-            boxShadow: '0 4px 12px rgba(0,0,0,0.3)', zIndex: 10, animation: 'slide-up 0.3s ease-out'
-          }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-              <span style={{ color: '#fff', fontWeight: '800', fontSize: '11px' }}>🔔 NEW NEWS ({toastNews.symbol})</span>
-              <button onClick={() => setToastNews(null)} style={{ background: 'transparent', border: 'none', color: '#fff', cursor: 'pointer' }}>✕</button>
+          <a 
+            href={toastNews.url} 
+            target="_blank" 
+            rel="noopener noreferrer"
+            style={{
+              position: 'absolute', 
+              bottom: '20px', 
+              left: '10px', 
+              right: '10px',
+              background: 'rgba(6, 78, 59, 0.95)', 
+              backdropFilter: 'blur(8px)',
+              color: '#10b981', 
+              padding: '12px', 
+              borderRadius: '8px',
+              fontSize: '11px', 
+              borderLeft: '4px solid #10b981', 
+              zIndex: 1000,
+              boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.5), 0 0 15px rgba(16, 185, 129, 0.2)',
+              textDecoration: 'none',
+              display: 'block',
+              cursor: 'pointer',
+              animation: 'toastSlideUp 0.4s cubic-bezier(0.16, 1, 0.3, 1)',
+              transition: 'transform 0.2s ease, background 0.2s ease'
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.transform = 'translateY(-2px)';
+              e.currentTarget.style.background = 'rgba(6, 95, 70, 1)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.transform = 'translateY(0)';
+              e.currentTarget.style.background = 'rgba(6, 78, 59, 0.95)';
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+              <strong style={{ color: '#34d399', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                ⚡ New Alert: {toastNews.symbol}
+              </strong>
+              <span style={{ color: '#059669', fontSize: '9px' }}>Just now</span>
             </div>
-            <p style={{ color: '#fff', fontSize: '11px', margin: 0, lineHeight: '1.4' }}>{toastNews.headline}</p>
-          </div>
+            <div style={{ color: '#ecfdf5', lineHeight: '1.4', overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
+              {toastNews.headline}
+            </div>
+            
+            <style>{`
+              @keyframes toastSlideUp {
+                from { transform: translateY(100%); opacity: 0; }
+                to { transform: translateY(0); opacity: 1; }
+              }
+            `}</style>
+          </a>
         )}
       </div>
 
