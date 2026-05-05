@@ -4,11 +4,15 @@ from core.config import settings
 
 _pool = None
 
-async def init_pg():
+async def init_pg(run_ddl: bool = False):
     """
-    Initializes the PostgreSQL connection pool and creates tables if they don't exist.
+    Initializes the PostgreSQL connection pool. 
+    Optional: runs DDL to create tables if run_ddl is True.
     """
     global _pool
+    if _pool is not None:
+        return _pool
+
     for i in range(5):
         try:
             _pool = await asyncpg.create_pool(settings.PG_URL, min_size=5, max_size=20)
@@ -16,15 +20,12 @@ async def init_pg():
         except Exception as e:
             if i == 4:
                 print(f"PostgreSQL init error after 5 retries: {e}")
-                return
+                return None
             await asyncio.sleep(2)
     
-    if _pool is None:
-        return
-
-    try:
-        async with _pool.acquire() as conn:
-            try:
+    if _pool is not None and run_ddl:
+        try:
+            async with _pool.acquire() as conn:
                 await conn.execute("""
                     CREATE TABLE IF NOT EXISTS klines (
                         symbol VARCHAR(20),
@@ -47,22 +48,20 @@ async def init_pg():
                         PRIMARY KEY (symbol, date_bucket, timestamp)
                     );
                 """)
-                print("PostgreSQL initialized successfully.")
-            except asyncpg.exceptions.UniqueViolationError:
-                print("PostgreSQL tables already being created by another worker.")
-            except Exception as e:
-                if "duplicate_object" in str(e) or "already exists" in str(e).lower():
-                    print("PostgreSQL tables already exist.")
-                else:
-                    raise e
-    except Exception as e:
-        print(f"PostgreSQL init error: {e}")
+                print("PostgreSQL schema initialized.")
+        except Exception as e:
+            if "already exists" in str(e).lower() or "duplicate" in str(e).lower():
+                print("PostgreSQL tables already exist.")
+            else:
+                print(f"PostgreSQL DDL error: {e}")
+    
+    return _pool
 
 async def get_pg_pool() -> asyncpg.Pool:
     """
-    Returns the initialized PostgreSQL pool.
+    Returns the initialized PostgreSQL pool, initializing it if necessary.
     """
     global _pool
     if _pool is None:
-        await init_pg()
+        await init_pg(run_ddl=False)
     return _pool

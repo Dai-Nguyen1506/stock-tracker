@@ -24,7 +24,7 @@ async def lifespan(app: FastAPI):
     logger.info("Redis connected.")
 
     logger.info("Connecting to PostgreSQL...")
-    await init_pg()
+    await init_pg(run_ddl=True)
     logger.info("PostgreSQL connected.")
     
     logger.info("Running Discovery Service...")
