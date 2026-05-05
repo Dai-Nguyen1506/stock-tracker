@@ -22,7 +22,7 @@ async def test_ping(request: PingTestRequest):
     """
     Performs a latency test on Cassandra for kline data.
     """
-    logger.info(f"Benchmark: Cassandra Ping for {request.symbol}")
+    logger.info(f"[API] Benchmark: Cassandra Ping for {request.symbol}")
     result = await benchmark_service.cassandra_ping(request.symbol, request.interval, request.start_date, request.end_date)
     return BenchmarkResponse(**result)
 
@@ -31,7 +31,7 @@ async def postgres_copy(request: PingTestRequest):
     """
     Benchmarks copying data from Cassandra to PostgreSQL.
     """
-    logger.info(f"Benchmark: Postgres Copy for {request.symbol}")
+    logger.info(f"[API] Benchmark: Postgres Copy for {request.symbol}")
     result = await benchmark_service.postgres_copy(request.symbol, request.interval, request.start_date, request.end_date)
     if isinstance(result, str):
          return BenchmarkResponse(status=result)
@@ -42,6 +42,6 @@ async def postgres_ping(request: PingTestRequest):
     """
     Performs a latency test on PostgreSQL for kline data.
     """
-    logger.info(f"Benchmark: Postgres Ping for {request.symbol}")
+    logger.info(f"[API] Benchmark: Postgres Ping for {request.symbol}")
     result = await benchmark_service.postgres_ping(request.symbol, request.interval, request.start_date, request.end_date)
     return BenchmarkResponse(**result)

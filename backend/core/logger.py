@@ -2,9 +2,12 @@ import logging
 import sys
 
 # Cấu hình logging
-LOG_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+LOG_FORMAT = "%(levelname)s:    %(message)s"
 
 def setup_logger(name: str):
+    """
+    Configures and returns a logger instance with a standardized console handler.
+    """
     logger = logging.getLogger(name)
     logger.setLevel(logging.INFO)
     

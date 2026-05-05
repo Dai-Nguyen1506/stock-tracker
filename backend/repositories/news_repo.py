@@ -44,7 +44,7 @@ class NewsRepository:
             
             return await session.execute(bound)
         except Exception as e:
-            logger.error(f"Cassandra error for {date_bucket}: {e}")
+            logger.error(f"[DB] Cassandra error for {date_bucket}: {e}")
             return []
 
     async def insert_news(self, symbol: str, date_bucket, dt_ts: datetime, headline: str, summary: str, url: str, sentiment: str = "Neutral"):
@@ -59,4 +59,4 @@ class NewsRepository:
             bound.bind_list([symbol, date_bucket, dt_ts, headline, summary, url, sentiment])
             await session.execute(bound)
         except Exception as e:
-            logger.error(f"Error inserting news to Cassandra: {e}")
+            logger.error(f"[DB] Error inserting news to Cassandra: {e}")

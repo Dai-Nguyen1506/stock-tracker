@@ -44,7 +44,7 @@ class KlineRepository:
             
             return await session.execute(bound)
         except Exception as e:
-            logger.error(f"Cassandra error for {date_bucket}: {e}")
+            logger.error(f"[DB] Cassandra error for {date_bucket}: {e}")
             return []
 
     async def insert_kline(self, symbol: str, interval: str, date_bucket, dt_ts: datetime, open: float, high: float, low: float, close: float, volume: float):
@@ -66,4 +66,4 @@ class KlineRepository:
             ])
             await session.execute(bound)
         except Exception as e:
-            logger.error(f"Error inserting kline to Cassandra: {e}")
+            logger.error(f"[DB] Error inserting kline to Cassandra: {e}")

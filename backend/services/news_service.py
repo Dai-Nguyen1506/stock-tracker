@@ -35,7 +35,6 @@ class NewsService:
                 target_month = target_dt.month
             
             results = await self._fetch_month_from_cassandra(symbol, target_year, target_month, before_ts)
-            
             results = sorted(results, key=lambda x: x["timestamp"], reverse=True)[:limit]
 
             first_day = datetime(target_year, target_month, 1, tzinfo=timezone.utc)
@@ -45,7 +44,7 @@ class NewsService:
             
             return results, target_year, target_month
         except Exception as e:
-            logger.error(f"NewsService error: {e}")
+            logger.error(f"[News] History retrieval failed: {e}")
             return [], datetime.now().year, datetime.now().month
 
     async def _ensure_month_data(self, symbol: str, year: int, month: int):
@@ -66,7 +65,7 @@ class NewsService:
                     break
             
             if not has_data:
-                logger.info(f"Proactive Fetch: Month {year}-{month} is missing for {symbol}. Filling now...")
+                logger.info(f"[News] Missing data for {year}-{month} ({symbol}). Fetching from Alpaca...")
                 start_date = datetime(year, month, 1, tzinfo=timezone.utc)
                 last_day = calendar.monthrange(year, month)[1]
                 end_date = datetime(year, month, last_day, 23, 59, 59, tzinfo=timezone.utc)
@@ -74,39 +73,34 @@ class NewsService:
                 api_news = await self.fetch_alpaca_news(symbol, limit=50, start=start_date, end=end_date)
                 if api_news:
                     await self.backfill_news(symbol, api_news)
-                    logger.info(f"Proactive Fetch: Saved {len(api_news)} items for {year}-{month} ({symbol})")
+                    logger.info(f"[News] Successfully backfilled {len(api_news)} items for {year}-{month}")
             else:
-                # NEW LOGIC: Even if data exists in Cassandra, let's trigger a light sync to VectorDB
-                # This ensures old data in Cassandra gets indexed for the chatbot.
-                logger.debug(f"Proactive Check: Month {year}-{month} exists in Cassandra. Ensuring VectorDB sync...")
+                logger.debug(f"[News] Month {year}-{month} exists. Triggering VectorDB sync...")
                 asyncio.create_task(self._sync_month_to_vector_db(symbol, year, month))
         except Exception as e:
-            logger.error(f"Error in proactive check for {year}-{month}: {e}")
+            logger.error(f"[News] Proactive check failed for {year}-{month}: {e}")
 
     async def _sync_month_to_vector_db(self, symbol: str, year: int, month: int):
         """
         Fetches a month of news from Cassandra and ensures it's indexed in ChromaDB.
         """
         try:
-            # We don't need to fetch ALL, just enough to fill the chatbot's context
             results = await self._fetch_month_from_cassandra(symbol, year, month)
             if not results:
                 return
                 
             for item in results:
-                # We reuse the same doc_id logic in push_to_ai_vector_embedder
-                # ChromaDB's upsert will handle duplicates (won't re-index if already there)
                 await push_to_ai_vector_embedder(
                     symbol=symbol,
                     headline=item['headline'],
-                    summary="", # Summary/Content might be missing in history but headline is better than nothing
+                    summary="",
                     content="",
                     url=item['url'],
                     ts_ms=item['timestamp']
                 )
-            logger.info(f"🔄 [Sync] Month {year}-{month} synchronized to VectorDB ({len(results)} items).")
+            logger.info(f"🔄 [VectorDB] Synced {len(results)} items for {year}-{month} ({symbol})")
         except Exception as e:
-            logger.error(f"Sync error for {year}-{month}: {e}")
+            logger.error(f"[VectorDB] Sync failed for {year}-{month}: {e}")
 
     async def _fetch_month_from_cassandra(self, symbol: str, year: int, month: int, before_ts: int = None) -> list:
         """Retrieves all news for a specific month from Cassandra."""
@@ -168,11 +162,11 @@ class NewsService:
             try:
                 res = await client.get(url, headers=headers)
                 if res.status_code != 200:
-                    logger.error(f"Alpaca News API Error ({res.status_code}): {res.text}")
+                    logger.error(f"[Alpaca] API Error ({res.status_code}): {res.text}")
                     return []
                 return res.json().get('news', [])
             except Exception as e:
-                logger.error(f"Alpaca News Fetch Exception: {e}")
+                logger.error(f"[Alpaca] Fetch exception: {e}")
                 return []
 
     async def backfill_news(self, symbol: str, news_list: list):
@@ -204,4 +198,4 @@ class NewsService:
                     ts
                 ))
             except Exception as e:
-                logger.error(f"Backfill item error: {e}")
+                logger.error(f"[News] Backfill item failed: {e}")

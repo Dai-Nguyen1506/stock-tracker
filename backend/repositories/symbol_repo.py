@@ -16,7 +16,7 @@ class SymbolRepository:
             if data:
                 return json.loads(data)
         except Exception as e:
-            logger.error(f"Error fetching symbols from Redis: {e}")
+            logger.error(f"[DB] Error fetching symbols from Redis: {e}")
         return {}
         
     async def get_stats(self) -> dict:
@@ -40,5 +40,5 @@ class SymbolRepository:
                 "postgres_latency_ms": float(pg_latency) if pg_latency else 0
             }
         except Exception as e:
-            logger.error(f"Error fetching stats from Redis: {e}")
+            logger.error(f"[DB] Error fetching stats from Redis: {e}")
             return None

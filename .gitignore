@@ -1,12 +1,9 @@
 .venv/
 __pycache__/
 
-# Môi trường (KHÔNG ĐƯỢC ĐẨY LÊN GITHUB)
 .env
 
-# AI Models & Cache
 .cache/
 
-# Hệ điều hành
 .DS_Store
 Thumbs.db

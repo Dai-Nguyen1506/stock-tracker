@@ -10,9 +10,9 @@ from core.cassandra import get_session
 from core.redis_client import init_redis, get_redis
 from core.postgres import get_pg_pool
 from ingestion.discovery import run_discovery_bootstrap
+from core.logger import logger
 
 BINANCE_WS_URL = "wss://stream.binance.com:9443/stream"
-
 redis_queue = asyncio.Queue()
 
 async def redis_publisher_worker():
@@ -113,7 +113,7 @@ async def process_trade_message(symbol: str, data: dict):
         })
         redis_queue.put_nowait((f"live:klines:{symbol}", payload))
     except Exception as e:
-        print(f"Trade process error for {symbol}: {e}")
+        logger.error(f"[Ingestion] Trade process error for {symbol}: {e}")
 
 async def process_depth_message(symbol: str, data: dict):
     """
@@ -123,10 +123,8 @@ async def process_depth_message(symbol: str, data: dict):
         ts = int(data.get('E', time.time() * 1000))
         bids = [f"{format_decimal(float(b[0]))}@{format_decimal(float(b[1]))}" for b in data.get('b', [])]
         asks = [f"{format_decimal(float(a[0]))}@{format_decimal(float(a[1]))}" for a in data.get('a', [])]
-            
         bids_str = ",".join(bids)
         asks_str = ",".join(asks)
-        
         dt_now = datetime.now(timezone.utc)
         dt_ts = datetime.fromtimestamp(ts/1000.0, timezone.utc).replace(tzinfo=None)
         bound = _prepared_depth_stmt.bind()
@@ -140,7 +138,7 @@ async def run_startup_backfill(session, symbols):
     """
     Backfills historical klines for multiple timeframes on startup.
     """
-    print(f"Startup: Backfilling klines for {len(symbols)} symbols...")
+    logger.info(f"[Ingestion] Startup: Backfilling klines for {len(symbols)} symbols...")
     intervals = ["1m", "15m", "1h", "4h", "1d"]
     async with httpx.AsyncClient(timeout=30.0) as client:
         for symbol in symbols:
@@ -167,7 +165,7 @@ async def run_startup_backfill(session, symbols):
                 except Exception:
                     pass
             await asyncio.sleep(0.1)
-    print("Startup backfill complete.")
+    logger.info("[Ingestion] Startup backfill complete.")
 
 async def flush_worker(session, redis_client):
     """
@@ -207,7 +205,7 @@ async def flush_worker(session, redis_client):
                 try:
                     await session.execute_batch(b)
                 except Exception as e:
-                    print(f"Cassandra Batch Error: {e}")
+                    logger.error(f"[DB] Cassandra Batch Error: {e}")
         
         t0 = time.time()
         await asyncio.gather(*[exec_batch(b) for b in batches])
@@ -224,7 +222,6 @@ async def flush_worker(session, redis_client):
                         p = list(b[1])
                         p[3] = int(p[3]) 
                         pg_klines.append(p)
-                    
                     pg_t0 = time.time()
                     await conn.executemany("INSERT INTO klines (symbol, interval, date_bucket, timestamp, open, high, low, close, volume) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) ON CONFLICT DO NOTHING", pg_klines)
                     pg_t1 = time.time()
@@ -235,7 +232,6 @@ async def flush_worker(session, redis_client):
                         p = list(b[1])
                         p[2] = int(p[2])
                         pg_depths.append(p)
-                    
                     if 'pg_t0' not in locals():
                         pg_t0 = time.time()
                         await conn.executemany("INSERT INTO orderbooks (symbol, date_bucket, timestamp, bids, asks) VALUES ($1, $2, $3, $4, $5) ON CONFLICT DO NOTHING", pg_depths)
@@ -248,7 +244,7 @@ async def flush_worker(session, redis_client):
             if 'pg_t0' in locals():
                 pg_latency_ms = (pg_t1 - pg_t0) * 1000
         except Exception as e:
-            print(f"Postgres Flush error: {e}")
+            logger.error(f"[DB] Postgres Flush error: {e}")
         
         await redis_client.set("global_trade_speed", str(total_kline))
         await redis_client.set("global_depth_speed", str(total_depth))
@@ -256,7 +252,7 @@ async def flush_worker(session, redis_client):
         await redis_client.set("cassandra_avg_latency", f"{latency_ms:.2f}")
         await redis_client.set("postgres_avg_latency", f"{pg_latency_ms:.2f}")
         
-        print(f"Flush: {total_kline} klines, {total_depth} depths. Cassandra: {latency_ms:.2f}ms | Postgres: {pg_latency_ms:.2f}ms")
+        logger.info(f"[Ingestion] Flush: {total_kline} klines, {total_depth} depths. Cassandra: {latency_ms:.2f}ms | Postgres: {pg_latency_ms:.2f}ms")
 
 async def run_binance_combined_stream(symbols):
     """
@@ -272,7 +268,7 @@ async def run_binance_combined_stream(symbols):
     for _ in range(10):
         asyncio.create_task(redis_publisher_worker())
     
-    print(f"Connecting: Subscribing to {len(symbols)} symbols...")
+    logger.info(f"[Ingestion] Connecting: Subscribing to {len(symbols)} symbols...")
     
     async with websockets.connect(BINANCE_WS_URL, open_timeout=60, ping_interval=20, ping_timeout=20) as ws:
         chunk_size = 50
@@ -289,7 +285,7 @@ async def run_binance_combined_stream(symbols):
             await ws.send(json.dumps(subscribe_msg))
             await asyncio.sleep(0.5)
             
-        print("Connected: Streams subscribed successfully.")
+        logger.info("[Ingestion] Connected: Streams subscribed successfully.")
         
         while True:
             try:
@@ -309,7 +305,7 @@ async def run_binance_combined_stream(symbols):
                 elif "@aggTrade" in stream_name:
                     asyncio.create_task(process_trade_message(symbol, data))
             except Exception as e:
-                print(f"Binance WebSocket error: {e}")
+                logger.error(f"[Ingestion] Binance WebSocket error: {e}")
                 break
 
 async def main():
@@ -326,4 +322,4 @@ if __name__ == "__main__":
     try:
         loop.run_until_complete(main())
     except KeyboardInterrupt:
-        print("Process stopped by user.")
+        logger.info("[Ingestion] Process stopped by user.")

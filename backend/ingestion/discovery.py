@@ -1,6 +1,7 @@
 import httpx
 import os
 from core.config import settings
+from core.logger import logger
 
 def get_optimized_crypto_lists(binance_raw_list: list, alpaca_raw_list: list) -> dict:
     """
@@ -53,7 +54,7 @@ async def get_active_usdt_symbols(limit: int = 1000) -> list:
                     symbols.append(s["symbol"].lower())
             return symbols[:limit]
         except Exception as e:
-            print(f"Error fetching Binance symbols: {e}")
+            logger.error(f"[App] Discovery - Binance fetch error: {e}")
             return []
 
 async def get_alpaca_crypto_symbols(api_key: str, secret_key: str) -> list:
@@ -61,7 +62,7 @@ async def get_alpaca_crypto_symbols(api_key: str, secret_key: str) -> list:
     Retrieves the list of active crypto assets from Alpaca.
     """
     if not api_key or not secret_key:
-        print("Warning: ALPACA_API_KEY_ID or ALPACA_API_SECRET_KEY is missing.")
+        logger.warning("[App] Discovery - Alpaca keys missing.")
         return []
         
     url = "https://paper-api.alpaca.markets/v2/assets"
@@ -79,7 +80,7 @@ async def get_alpaca_crypto_symbols(api_key: str, secret_key: str) -> list:
             crypto_assets = response.json()
             return [asset['symbol'] for asset in crypto_assets]
         except Exception as e:
-            print(f"Error connecting to Alpaca API: {e}")
+            logger.error(f"[App] Discovery - Alpaca API error: {e}")
             return []
 
 async def run_discovery_bootstrap() -> dict:
@@ -96,8 +97,7 @@ async def run_discovery_bootstrap() -> dict:
         alpaca_symbols = ["BTC/USD", "ETH/USD", "SOL/USD"]
         
     processed_data = get_optimized_crypto_lists(binance_symbols, alpaca_symbols)
-    
-    print(f"Discovery: {len(processed_data['priority_list'])} priority pairs, {len(processed_data['remainder_list'])} remainder pairs.")
+    logger.info(f"[App] Discovery: {len(processed_data['priority_list'])} priority pairs, {len(processed_data['remainder_list'])} others.")
     return processed_data
 
 if __name__ == "__main__":

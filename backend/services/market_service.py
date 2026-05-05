@@ -93,7 +93,7 @@ class MarketService:
             elif not effective_before_ts:
                 effective_before_ts = int(time.time() * 1000)
                 
-            logger.warning(f"History Fallback: Only have {len(results)}/{limit} for {symbol}. Fetching {needed} more from Binance.")
+            logger.warning(f"[Market] History Fallback: Only have {len(results)}/{limit} for {symbol}. Fetching {needed} more from Binance.")
             try:
                 api_data = await self.fetch_binance_klines(symbol, interval, needed, effective_before_ts)
                 if api_data:
@@ -105,7 +105,7 @@ class MarketService:
                     
                     asyncio.create_task(self.backfill_klines(symbol, interval, api_data))
             except Exception as e:
-                logger.error(f"History Fallback error: {e}")
+                logger.error(f"[Market] History Fallback error: {e}")
                 
         return results
 
@@ -143,4 +143,4 @@ class MarketService:
             dt_ts = datetime.fromtimestamp(ts/1000.0, timezone.utc).replace(tzinfo=None)
             date_bucket = dt_ts.date()
             await self.kline_repo.insert_kline(symbol, interval, date_bucket, dt_ts, k["open"], k["high"], k["low"], k["close"], k["volume"])
-        logger.info(f"Backfill complete: Saved {len(klines)} klines for {symbol} ({interval})")
+        logger.info(f"[Market] Backfill complete: Saved {len(klines)} klines for {symbol} ({interval})")

@@ -130,11 +130,11 @@ export const MainChart: React.FC<MainChartProps> = ({ selectedSymbol, selectedIn
         const timeScale = chart.timeScale();
         const range = timeScale.getVisibleLogicalRange();
         
-        // Gộp và Lọc trùng để tránh crash biểu đồ
+        // Merge and filter duplicates to avoid chart crashes
         const combinedCandles = [...newCandles, ...currentDataRef.current.candles];
         const combinedVolumes = [...newVolumes, ...currentDataRef.current.volumes];
         
-        // Loại bỏ trùng lặp và sắp xếp lại
+        // Remove duplicates and re-sort
         const uniqueCandles: any[] = [];
         const seenTs = new Set();
         [...combinedCandles].sort((a,b) => a.time - b.time).forEach(c => {
@@ -160,7 +160,7 @@ export const MainChart: React.FC<MainChartProps> = ({ selectedSymbol, selectedIn
         vol.setData(uniqueVolumes);
         
         if (range) {
-           // Tính toán lại vị trí để không bị nhảy
+           // Recalculate position to prevent jumping
            const addedCount = uniqueCandles.length - (combinedCandles.length - newCandles.length);
            if (addedCount > 0) {
               timeScale.setVisibleLogicalRange({

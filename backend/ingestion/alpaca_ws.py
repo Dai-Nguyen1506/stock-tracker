@@ -9,6 +9,7 @@ from core.redis_client import init_redis, get_redis
 from core.vector_db import get_news_collection, push_to_ai_vector_embedder
 from ingestion.discovery import run_discovery_bootstrap
 from core.config import settings
+from core.logger import logger
 
 ALPACA_WS_URL = "wss://stream.data.alpaca.markets/v1beta1/news"
 _prepared_news_stmt = None
@@ -63,13 +64,13 @@ async def process_news_message(session, message_list):
                     })
                     await redis_client.publish("live:news", payload)
                 except Exception as e:
-                    print(f"Redis PubSub error: {e}")
+                    logger.error(f"[WS] Redis PubSub error: {e}")
                     
-                print(f"News caught: {symbol} - {headline}")
+                logger.info(f"[Ingestion] News caught: {symbol} - {headline[:50]}...")
                 asyncio.create_task(push_to_ai_vector_embedder(symbol, headline, summary, content, url, ts_ms))
                 
     except Exception as e:
-        print(f"Error processing news: {e}")
+        logger.error(f"[Ingestion] News process error: {e}")
 
 async def get_last_news_timestamp(session) -> datetime:
     """
@@ -77,7 +78,6 @@ async def get_last_news_timestamp(session) -> datetime:
     """
     check_symbols = ["BTC", "ETH", "AAPL", "TSLA", "MSFT", "NVDA"]
     latest_ts = None
-    
     dt_now = datetime.now(timezone.utc)
     for i in range(7):
         d = (dt_now - timedelta(days=i)).date()
@@ -89,7 +89,6 @@ async def get_last_news_timestamp(session) -> datetime:
                     ts = r.timestamp
                     if latest_ts is None or ts > latest_ts:
                         latest_ts = ts
-                
                 if latest_ts and i == 0: 
                     return latest_ts
             except:
@@ -109,43 +108,27 @@ async def run_startup_news_backfill(session, symbols, api_key, secret_key):
     if last_ts is None:
         start_time_dt = datetime.now(timezone.utc) - timedelta(days=7)
         start_time = start_time_dt.strftime('%Y-%m-%dT%H:%M:%SZ')
-        print(f"News Backfill: DB empty. Fetching news from last 7 days ({start_time})...")
+        logger.info(f"[Ingestion] News Backfill: DB empty. Fetching news from last 7 days...")
         
         chunk_size = 30
         for i in range(0, len(symbols), chunk_size):
             chunk = [s.upper().strip() for s in symbols[i:i+chunk_size] if s]
             if not chunk: continue
-            
             syms_str = ",".join(chunk)
             url = f"https://data.alpaca.markets/v1beta1/news?symbols={syms_str}&start={start_time}&limit=50"
-            success = await fetch_and_store_news(session, url, headers)
-            
-            if not success:
-                for s in chunk:
-                    single_url = f"https://data.alpaca.markets/v1beta1/news?symbols={s}&start={start_time}&limit=20"
-                    await fetch_and_store_news(session, single_url, headers)
-                    await asyncio.sleep(0.2)
-            
+            await fetch_and_store_news(session, url, headers)
             await asyncio.sleep(0.5)
     else:
-        print(f"News Backfill: Database contains data. Last entry: {last_ts}. Fetching newer news...")
+        logger.info(f"[Ingestion] News Backfill: Last entry: {last_ts}. Fetching newer news...")
         start_time = (last_ts + timedelta(seconds=1)).strftime('%Y-%m-%dT%H:%M:%SZ')
         
         chunk_size = 30
         for i in range(0, len(symbols), chunk_size):
             chunk = [s.upper().strip() for s in symbols[i:i+chunk_size] if s]
             if not chunk: continue
-            
             syms_str = ",".join(chunk)
             url = f"https://data.alpaca.markets/v1beta1/news?symbols={syms_str}&start={start_time}&limit=50"
-            success = await fetch_and_store_news(session, url, headers)
-            
-            if not success:
-                for s in chunk:
-                    single_url = f"https://data.alpaca.markets/v1beta1/news?symbols={s}&start={start_time}&limit=20"
-                    await fetch_and_store_news(session, single_url, headers)
-                    await asyncio.sleep(0.2)
-
+            await fetch_and_store_news(session, url, headers)
             await asyncio.sleep(0.5)
 
 async def fetch_and_store_news(session, url, headers) -> bool:
@@ -160,31 +143,28 @@ async def fetch_and_store_news(session, url, headers) -> bool:
                 if not news_data:
                     return True
                 
-                print(f"  Fetched {len(news_data)} news items.")
+                logger.info(f"[Ingestion] Backfilled {len(news_data)} news items.")
                 for n in news_data:
                     created_at = n['created_at']
                     dt = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
                     ts_ms = int(dt.timestamp() * 1000)
-                    
                     for s in n.get('symbols', []):
                         if s not in _allowed_symbols:
                             continue
-                            
                         bound = _prepared_news_stmt.bind()
                         headline = n.get('headline', '')
                         summary = n.get('summary', '')
                         content = n.get('content', '')
                         url_news = n.get('url', '')
-                        
                         bound.bind_list([s, dt.date(), dt, headline, summary, url_news, "Neutral"])
                         await session.execute(bound)
                         asyncio.create_task(push_to_ai_vector_embedder(s, headline, summary, content, url_news, ts_ms))
                 return True
             else:
-                print(f"  Alpaca API Error: {res.status_code} - {res.text}")
+                logger.error(f"[Alpaca] API Error: {res.status_code}")
                 return False
     except Exception as e:
-        print(f"  Fetch news error: {e}")
+        logger.error(f"[Ingestion] News fetch error: {e}")
         return False
 
 async def run_news_stream(api_key, secret_key, symbols):
@@ -192,22 +172,20 @@ async def run_news_stream(api_key, secret_key, symbols):
     Main loop for streaming news from Alpaca WebSocket.
     """
     if not api_key or not secret_key:
-        print("Warning: Alpaca API keys are missing.")
+        logger.warning("[Ingestion] Alpaca API keys missing.")
         return
 
     session = await get_session()
     await init_prepared_statements(session)
-    
     global _allowed_symbols
     _allowed_symbols = set(symbols)
     
     await run_startup_news_backfill(session, symbols, api_key, secret_key)
     
-    print(f"News: Connecting to Alpaca News WS for {len(symbols)} symbols...")
+    logger.info(f"[Ingestion] Connecting to Alpaca News WS for {len(symbols)} symbols...")
     async with websockets.connect(ALPACA_WS_URL, open_timeout=60, ping_interval=20, ping_timeout=20) as ws:
         await ws.send(json.dumps({"action": "auth", "key": api_key, "secret": secret_key}))
         await ws.recv()
-        
         await ws.send(json.dumps({"action": "subscribe", "news": symbols}))
         await ws.recv()
         
@@ -217,11 +195,11 @@ async def run_news_stream(api_key, secret_key, symbols):
                 data = json.loads(msg)
                 asyncio.create_task(process_news_message(session, data))
             except websockets.exceptions.ConnectionClosed:
-                print("Connection lost to Alpaca. Reconnecting...")
+                logger.warning("[Ingestion] Alpaca connection lost. Reconnecting...")
                 await asyncio.sleep(5)
                 break
             except Exception as e:
-                print(f"News WebSocket error: {e}")
+                logger.error(f"[Ingestion] News WebSocket error: {e}")
 
 async def main():
     """
@@ -230,18 +208,16 @@ async def main():
     await init_redis()
     api_key = settings.ALPACA_API_KEY_ID
     secret_key = settings.ALPACA_API_SECRET_KEY
-    
     discovery_data = await run_discovery_bootstrap()
     target_symbols = [item["base"] for item in discovery_data["priority_list"]]
     
-    print(f"Starting News Stream for {len(target_symbols)} symbols.")
-    
+    logger.info(f"[Ingestion] Starting News Stream for {len(target_symbols)} symbols.")
     while True:
         try:
             await run_news_stream(api_key, secret_key, target_symbols)
             await asyncio.sleep(5)
         except Exception as e:
-            print(f"News Stream connection lost: {e}")
+            logger.error(f"[Ingestion] News Stream crashed: {e}")
             await asyncio.sleep(5)
 
 if __name__ == "__main__":
@@ -249,4 +225,4 @@ if __name__ == "__main__":
     try:
         loop.run_until_complete(main())
     except KeyboardInterrupt:
-        print("Process stopped by user.")
+        logger.info("[Ingestion] News process stopped by user.")

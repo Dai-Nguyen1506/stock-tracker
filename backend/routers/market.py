@@ -23,7 +23,7 @@ async def get_history(
     """
     Retrieves historical kline data for a specific symbol and interval.
     """
-    logger.info(f"History API call: {symbol} ({interval})")
+    logger.info(f"[API] History call: {symbol} ({interval})")
     results = await market_service.get_history(symbol, interval, limit, before_ts)
     
     return HistoryResponse(

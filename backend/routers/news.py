@@ -17,7 +17,7 @@ async def get_news_history(
     """
     Retrieves historical news items for a specific symbol.
     """
-    logger.info(f"News History API call: {symbol}")
+    logger.info(f"[API] News History call: {symbol}")
     results, year_val, month_val = await news_service.get_news_history(symbol, limit, before_ts, year, month)
     return NewsHistoryResponse(
         data=[NewsItem(**item) for item in results],

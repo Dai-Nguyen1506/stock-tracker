@@ -53,9 +53,9 @@ def register_exception_handlers(app):
     app.add_exception_handler(RequestValidationError, validation_exception_handler)
     app.add_exception_handler(Exception, general_exception_handler)
     
-    # Database specific errors
     @app.exception_handler(asyncpg.PostgresError)
     async def postgres_error_handler(request: Request, exc: asyncpg.PostgresError):
+        """Handler for PostgreSQL specific errors."""
         logger.error(f"PostgreSQL Error: {exc}")
         return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

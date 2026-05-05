@@ -11,7 +11,7 @@ services:
     ports:
       - "9042:9042"
     volumes:
-      - cassandra_data:/var/lib/cassandra   # Data persist sau khi container stop
+      - cassandra_data:/var/lib/cassandra
     networks:
       - stock_network
     restart: unless-stopped
@@ -30,8 +30,8 @@ services:
       interval: 15s
       timeout: 10s
       retries: 10
-      start_period: 90s   # Cassandra khởi động chậm, chờ 90s trước khi check
-
+      start_period: 90s   
+  
   # ── 1.1 SCHEMA INIT ──────────────────────────────────
   cassandra-init:
     image: cassandra:4.1
@@ -83,11 +83,11 @@ services:
   backend:
     build: ./backend
     ports:
-      - "8001:8000" # Đổi cổng public vì ChromaDB đã dùng 8000
+      - "8001:8000"
     env_file:
       - .env
     environment:
-      CASSANDRA_HOST: cassandra   # Tên service = hostname trong Docker network
+      CASSANDRA_HOST: cassandra   
       APP_ENV: production
       UVICORN_WORKERS: "2"
       REDIS_URL: redis://redis:6379/0

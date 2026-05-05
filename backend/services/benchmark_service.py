@@ -12,6 +12,9 @@ class BenchmarkService:
     Service for performance benchmarking and database statistics.
     """
     def __init__(self):
+        """
+        Initializes the BenchmarkService with necessary repositories.
+        """
         self.symbol_repo = SymbolRepository()
 
     async def get_stats(self) -> dict:
@@ -32,6 +35,7 @@ class BenchmarkService:
             
             t0 = time.time()
             async def fetch_day(date_bucket):
+                """Helper to fetch a single day bucket from Cassandra."""
                 query = "SELECT * FROM market_data.klines WHERE symbol=? AND interval=? AND date_bucket=?"
                 stmt = acsylla.create_statement(query, parameters=[symbol, interval, date_bucket])
                 stmt.set_page_size(50000)

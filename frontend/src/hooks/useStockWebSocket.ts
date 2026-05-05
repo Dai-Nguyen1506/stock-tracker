@@ -29,11 +29,11 @@ export function useStockWebSocket(url: string) {
 
     ws.onmessage = (event) => {
       const raw = event.data;
-      // BỎ QUA NGAY NẾU LÀ HEARTBEAT (PONG)
+      // IGNORE IMMEDIATELY IF HEARTBEAT (PONG)
       if (raw === "pong" || typeof raw !== "string") return;
 
       try {
-        // Chỉ parse nếu là một chuỗi JSON hợp lệ
+        // Only parse if it's a valid JSON string
         if (raw.trim().startsWith('{')) {
           const data = JSON.parse(raw);
           if (data.type === 'kline') {
@@ -43,7 +43,7 @@ export function useStockWebSocket(url: string) {
           }
         }
       } catch (e) {
-        // Không log lỗi nếu dữ liệu không phải JSON chủ đích
+        // Do not log error if data is not intended to be JSON
       }
     };
 

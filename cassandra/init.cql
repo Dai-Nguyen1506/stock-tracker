@@ -1,4 +1,4 @@
--- Tạo keyspace (= database trong Cassandra)
+-- Create keyspace (= database in Cassandra)
 CREATE KEYSPACE IF NOT EXISTS market_data
   WITH replication = {
     'class': 'SimpleStrategy',
@@ -7,7 +7,7 @@ CREATE KEYSPACE IF NOT EXISTS market_data
 
 USE market_data;
 
--- Bảng lưu nến OHLCV đa khung thời gian (1m, 5m, 1h...)
+-- Table for OHLCV candles across multiple timeframes (1m, 5m, 1h...)
 CREATE TABLE IF NOT EXISTS klines (
     symbol      TEXT,
     interval    TEXT,
@@ -28,7 +28,7 @@ CREATE TABLE IF NOT EXISTS klines (
   AND compression = {'class': 'LZ4Compressor', 'chunk_length_in_kb': 64}
   AND caching = {'keys': 'ALL', 'rows_per_partition': 'NONE'};
 
--- Bảng lưu News từ Alpaca
+-- Table for News retrieved from Alpaca
 CREATE TABLE IF NOT EXISTS news (
     symbol      TEXT,
     date_bucket DATE,
@@ -46,7 +46,7 @@ CREATE TABLE IF NOT EXISTS news (
   }
   AND compression = {'class': 'LZ4Compressor', 'chunk_length_in_kb': 64};
 
--- Bảng lưu raw Depth để test hiệu năng ghi
+-- Table for raw Depth data to test write performance
 CREATE TABLE IF NOT EXISTS depth (
     symbol      TEXT,
     date_bucket DATE,
@@ -61,5 +61,5 @@ CREATE TABLE IF NOT EXISTS depth (
     'compaction_window_size': 1
   }
   AND compression = {'class': 'LZ4Compressor', 'chunk_length_in_kb': 64}
-  AND default_time_to_live = 300  -- 5 phút TTL
-  AND gc_grace_seconds = 3600;      -- Giảm thời gian giữ tombstone để dọn dẹp sớm
+  AND default_time_to_live = 300  -- 5 minutes TTL
+  AND gc_grace_seconds = 3600;      -- Reduce tombstone grace period for faster cleanup

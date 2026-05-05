@@ -13,6 +13,9 @@ class ChatService:
     Service for handling AI-powered financial chat interactions using Gemini.
     """
     def __init__(self):
+        """
+        Initializes the ChatService with Gemini API configuration and fallback models.
+        """
         self.api_key = settings.GEMINI_API_KEY
         if self.api_key:
             genai.configure(api_key=self.api_key)
@@ -61,10 +64,10 @@ class ChatService:
                     break
                     
             if not klines:
-                return "Recent price data not found in database."
+                return "Recent price data not found."
             return "\n".join(klines[:limit])
         except Exception as e:
-            logger.error(f"Error fetching klines for chatbot: {e}")
+            logger.error(f"[Chat] Kline fetch failed: {e}")
             return f"Price query error: {str(e)}"
 
     async def chat(self, query: str, symbol: str = None, interval: str = "1m", history: list = []) -> str:
@@ -96,12 +99,11 @@ class ChatService:
                         if symbol_from_query:
                             break
             except Exception as e:
-                logger.warning(f"Symbol detection failed: {e}")
+                logger.warning(f"[Chat] Symbol detection failed: {e}")
 
         base_symbol = full_symbol.replace("USDT", "")
         current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
-        # --- NEW: Intelligent Month Detection for RAG ---
         month_map = {
             "tháng 1": 1, "tháng 2": 2, "tháng 3": 3, "tháng 4": 4, "tháng 5": 5, "tháng 6": 6,
             "tháng 7": 7, "tháng 8": 8, "tháng 9": 9, "tháng 10": 10, "tháng 11": 11, "tháng 12": 12,
@@ -123,10 +125,8 @@ class ChatService:
             try:
                 count = collection.count()
                 if count > 0:
-                    fetch_n = 25 # Tăng thêm số lượng tìm kiếm
+                    fetch_n = 25
                     query_params = {"query_texts": [query], "n_results": min(fetch_n, count)}
-                    
-                    # Metadata Filter: Always filter by symbol
                     where_clauses = [{"symbol": base_symbol}]
                     
                     if target_month:
@@ -140,7 +140,7 @@ class ChatService:
                         
                         where_clauses.append({"timestamp": {"$gte": start_ts}})
                         where_clauses.append({"timestamp": {"$lte": end_ts}})
-                        logger.info(f"📅 [Chat] Filtering news for month {target_month}/{target_year}")
+                        logger.info(f"📅 [Chat] Filtering news for {target_month}/{target_year}")
 
                     if len(where_clauses) > 1:
                         query_params["where"] = {"$and": where_clauses}
@@ -153,10 +153,10 @@ class ChatService:
                         for doc, meta in zip(res['documents'][0], res['metadatas'][0]):
                             combined.append({"doc": doc, "meta": meta, "ts": meta.get("timestamp", 0)})
                         
-                        logger.info(f"🧠 [Chat] Found {len(combined)} news items after filtering.")
+                        logger.info(f"🧠 [Chat] Context loaded: {len(combined)} news items.")
                         
                         news_list = []
-                        for item in combined[:10]: # Cho AI đọc 10 tin cho đầy đủ
+                        for item in combined[:10]:
                             ts_ms = item["ts"]
                             doc = item["doc"]
                             if ts_ms:
@@ -167,12 +167,11 @@ class ChatService:
                                 news_list.append(f"- {doc}")
                         context_news = "\n".join(news_list)
                     else:
-                        logger.info(f"⚠️ [Chat] No matching news found in VectorDB for the filter.")
+                        logger.info(f"[Chat] No news found for filter: {base_symbol} (M:{target_month})")
             except Exception as e: 
-                logger.warning(f"RAG query failed: {e}")
+                logger.warning(f"[Chat] RAG query failed: {e}")
 
         price_context = await self._get_recent_klines(full_symbol, interval)
-
         system_prompt = self._load_system_prompt()
         user_content = f"""SYMBOL: {full_symbol}
 CURRENT TIME: {current_time}
@@ -193,23 +192,17 @@ USER QUERY: {query}"""
 
         for model_name in self.models:
             try:
-                model = genai.GenerativeModel(
-                    model_name=model_name,
-                    system_instruction=system_prompt
-                )
+                model = genai.GenerativeModel(model_name=model_name, system_instruction=system_prompt)
                 response = await model.generate_content_async(
                     contents=contents,
-                    generation_config=genai.types.GenerationConfig(
-                        temperature=0.2,
-                        max_output_tokens=2048
-                    )
+                    generation_config=genai.types.GenerationConfig(temperature=0.2, max_output_tokens=2048)
                 )
                 return response.text
             except Exception as e:
                 if "429" in str(e):
-                    logger.warning(f"Model {model_name} quota exceeded, trying next...")
+                    logger.warning(f"[Chat] {model_name} quota exceeded, trying next...")
                     continue
-                logger.error(f"Error with model {model_name}: {e}")
-                return f"AI Error from {model_name}: {str(e)}"
+                logger.error(f"[Chat] {model_name} error: {e}")
+                return f"AI Error: {str(e)}"
         
         return "The system is currently overwhelmed. Please try again later."

@@ -12,8 +12,8 @@ export type BinanceKline = {
 type Callback = (k: BinanceKline) => void;
 
 /**
- * Connect trực tiếp tới Binance Kline WebSocket.
- * Cung cấp real-time cập nhật mỗi giây cho chart.
+ * Connects directly to the Binance Kline WebSocket.
+ * Provides real-time updates every second for the chart.
  */
 export function useBinanceKlineStream(symbol: string, interval: string, onKline: Callback) {
   const wsRef = useRef<WebSocket | null>(null);

@@ -15,29 +15,29 @@ async def lifespan(app: FastAPI):
     """
     Handles application startup and shutdown events.
     """
-    logger.info("Connecting to Cassandra...")
+    logger.info("[DB] Connecting to Cassandra...")
     await get_session()
-    logger.info("Cassandra connected.")
+    logger.info("[DB] Cassandra connected.")
     
-    logger.info("Connecting to Redis...")
+    logger.info("[DB] Connecting to Redis...")
     await init_redis()
     redis = get_redis()
-    logger.info("Redis connected.")
+    logger.info("[DB] Redis connected.")
 
-    logger.info("Connecting to PostgreSQL...")
+    logger.info("[DB] Connecting to PostgreSQL...")
     await init_pg()
-    logger.info("PostgreSQL connected.")
+    logger.info("[DB] PostgreSQL connected.")
     
-    logger.info("Running Discovery Service...")
+    logger.info("[App] Running Discovery Service...")
     market_symbols = await run_discovery_bootstrap()
     await redis.set("market_symbols", json.dumps(market_symbols))
-    logger.info("Discovery complete.")
+    logger.info("[App] Discovery complete.")
     
     yield
 
-    logger.info("Closing Cassandra connection...")
+    logger.info("[DB] Closing Cassandra connection...")
     await close_session()
-    logger.info("Closing Redis connection...")
+    logger.info("[DB] Closing Redis connection...")
     await close_redis()
 
 app = FastAPI(

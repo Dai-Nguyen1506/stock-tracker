@@ -44,7 +44,7 @@ async def websocket_global_endpoint(websocket: WebSocket):
                 if message['type'] == 'message':
                     await websocket.send_text(message['data'])
         except Exception as e:
-            logger.error(f"Global Redis listener error: {e}")
+            logger.error(f"[WS] Global Redis listener error: {e}")
 
     listener_task = asyncio.create_task(redis_listener())
 
@@ -80,7 +80,7 @@ async def websocket_endpoint(websocket: WebSocket, symbol: str):
                 if message['type'] == 'message':
                     await websocket.send_text(message['data'])
         except Exception as e:
-            logger.error(f"Redis listener error for {symbol}: {e}")
+            logger.error(f"[WS] Redis listener error for {symbol}: {e}")
 
     listener_task = asyncio.create_task(redis_listener())
 
