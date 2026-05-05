@@ -3,7 +3,10 @@ from core.config import settings
 
 _redis_pool = None
 
-async def init_redis():
+async def init_redis() -> redis.Redis:
+    """
+    Initializes the Redis connection pool.
+    """
     global _redis_pool
     if not _redis_pool:
         _redis_pool = redis.from_url(
@@ -15,12 +18,18 @@ async def init_redis():
     return _redis_pool
 
 async def close_redis():
+    """
+    Closes the Redis connection pool.
+    """
     global _redis_pool
     if _redis_pool:
         await _redis_pool.close()
         _redis_pool = None
 
 def get_redis() -> redis.Redis:
+    """
+    Returns the initialized Redis pool.
+    """
     if not _redis_pool:
         raise Exception("Redis pool has not been initialized.")
     return _redis_pool

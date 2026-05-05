@@ -6,8 +6,7 @@ _session = None
 
 async def get_session() -> acsylla.Session:
     """
-    Trả về session đã kết nối.
-    Dùng pattern singleton — chỉ tạo 1 lần, tái dùng cho mọi request.
+    Returns the connected Cassandra session. Creates it if it doesn't exist.
     """
     global _cluster, _session
     if _session is None:
@@ -23,6 +22,9 @@ async def get_session() -> acsylla.Session:
     return _session
 
 async def close_session():
+    """
+    Closes the Cassandra session and cluster.
+    """
     global _cluster, _session
     if _session:
         await _session.close()

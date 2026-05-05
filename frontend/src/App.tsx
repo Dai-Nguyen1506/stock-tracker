@@ -2,8 +2,6 @@ import { useState } from 'react';
 import styles from './App.module.css';
 import { useStockWebSocket } from './hooks/useStockWebSocket';
 import { WS_BASE_URL } from './config';
-
-// Import Components
 import { SidebarLeft } from './components/SidebarLeft';
 import { SidebarRight } from './components/SidebarRight';
 import { MainChart } from './components/MainChart';
@@ -17,12 +15,10 @@ function App() {
   return (
     <div className={styles.appContainer}>
       
-      {/* CỘT TRÁI: News & Bot */}
       <div className={styles.leftCol}>
         <SidebarLeft news={news} selectedSymbol={selectedSymbol} selectedInterval={selectedInterval} />
       </div>
 
-      {/* CỘT GIỮA: Chart & Depth */}
       <div className={styles.midCol}>
         <div className={`glass-panel ${styles.panel} ${styles.chartPanel}`}>
           <MainChart selectedSymbol={selectedSymbol} selectedInterval={selectedInterval} setSelectedInterval={setSelectedInterval} />
@@ -32,7 +28,6 @@ function App() {
         </div>
       </div>
 
-      {/* CỘT PHẢI: Market List & Test DB */}
       <div className={styles.rightCol}>
         <SidebarRight selectedSymbol={selectedSymbol} onSelectSymbol={setSelectedSymbol} />
       </div>
@@ -42,4 +37,3 @@ function App() {
 }
 
 export default App;
-

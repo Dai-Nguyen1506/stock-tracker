@@ -1,14 +1,11 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { API_BASE_URL } from '../config';
 
-
-
 interface SidebarRightProps {
   selectedSymbol: string;
   onSelectSymbol: (sym: string) => void;
 }
 
-// ── Market data từ Binance REST API ──────────────────────────
 async function fetchTickers(symbols: string[]): Promise<Record<string, { price: number; change: number }>> {
   try {
     const res = await fetch('https://api.binance.com/api/v3/ticker/24hr');
@@ -35,7 +32,6 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({ selectedSymbol, onSe
   });
   const [tickers, setTickers] = useState<Record<string, { price: number; change: number }>>({});
 
-  // Test state
   const [testStartDate, setTestStartDate] = useState(new Date(Date.now() - 7 * 86400000).toISOString().split('T')[0]);
   const [testEndDate, setTestEndDate] = useState(new Date().toISOString().split('T')[0]);
   const [testInterval, setTestInterval] = useState('1m');
@@ -44,7 +40,6 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({ selectedSymbol, onSe
 
   const allSymbols = [...symbols.priority, ...symbols.remainder];
 
-  // Load symbols từ Discovery API - KHÔNG CẮT BỚT .slice()
   useEffect(() => {
     const fetchSymbols = () => {
       fetch(`${API_BASE_URL}/api/v1/market/symbols`)
@@ -53,7 +48,6 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({ selectedSymbol, onSe
           if (d.priority?.length || d.remainder?.length) {
             setSymbols({ priority: d.priority || [], remainder: d.remainder || [] });
           } else {
-            // Retry if empty (backend might still be warming up)
             setTimeout(fetchSymbols, 2000);
           }
         })
@@ -65,7 +59,6 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({ selectedSymbol, onSe
   }, []);
 
   const refreshTickers = useCallback(async () => {
-    // Fetch giá cho toàn bộ symbols có trong danh sách
     const t = await fetchTickers(allSymbols);
     setTickers(t);
   }, [allSymbols.join(',')]);
@@ -98,7 +91,7 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({ selectedSymbol, onSe
         setTestResult({ readMs: data.read_ms, rows: data.rows });
       }
     } catch {
-      setTestResult({ error: 'Không thể kết nối tới Backend' });
+      setTestResult({ error: 'Cannot connect to Backend' });
     } finally {
       setTesting(false);
     }
@@ -114,9 +107,9 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({ selectedSymbol, onSe
         body: JSON.stringify({ symbol: selectedSymbol, interval: testInterval, start_date: testStartDate, end_date: testEndDate })
       });
       const data = await res.json();
-      setTestResult({ error: data.status, readMs: data.write_ms, rows: '-' }); // Using error field just to display status text for now
+      setTestResult({ error: data.status, readMs: data.write_ms, rows: '-' });
     } catch {
-      setTestResult({ error: 'Không thể kết nối tới Backend' });
+      setTestResult({ error: 'Cannot connect to Backend' });
     } finally {
       setTesting(false);
     }
@@ -138,7 +131,7 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({ selectedSymbol, onSe
         setTestResult({ readMs: data.read_ms, rows: data.rows, isPg: true });
       }
     } catch {
-      setTestResult({ error: 'Không thể kết nối tới Backend' });
+      setTestResult({ error: 'Cannot connect to Backend' });
     } finally {
       setTesting(false);
     }
@@ -206,8 +199,6 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({ selectedSymbol, onSe
       <div className="glass-panel" style={{ flex: 4, display: 'flex', flexDirection: 'column', padding: '14px', overflow: 'hidden' }}>
         <h3 style={{ fontWeight: '700', fontSize: '14px', color: '#f8fafc', marginBottom: '10px' }}>⚡ Cassandra Test</h3>
 
-        {/* Ingestion Worker info removed */}
-
         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', flex: 1 }}>
           <div style={{ padding: '6px 9px', background: 'rgba(59,130,246,0.08)', borderRadius: '6px', border: '1px solid rgba(59,130,246,0.15)', fontSize: '11px', color: '#93c5fd' }}>
             Symbol: <strong>{selectedSymbol}</strong>
@@ -216,11 +207,11 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({ selectedSymbol, onSe
           <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
             <select value={testInterval} onChange={e => setTestInterval(e.target.value)}
               style={{ width: '100%', background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(255,255,255,0.08)', color: 'white', padding: '7px 8px', borderRadius: '6px', outline: 'none', fontSize: '11px', marginBottom: '2px' }}>
-              <option value="1m">1 phút</option>
-              <option value="5m">5 phút</option>
-              <option value="15m">15 phút</option>
-              <option value="1h">1 giờ</option>
-              <option value="1d">1 ngày</option>
+              <option value="1m">1 minute</option>
+              <option value="5m">5 minutes</option>
+              <option value="15m">15 minutes</option>
+              <option value="1h">1 hour</option>
+              <option value="1d">1 day</option>
             </select>
             
             <div style={{ display: 'flex', gap: '6px' }}>
@@ -253,7 +244,7 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({ selectedSymbol, onSe
             background: testing ? 'rgba(16,185,129,0.35)' : '#10b981', color: 'white', border: 'none',
             padding: '9px', borderRadius: '6px', fontWeight: '700', cursor: testing ? 'wait' : 'pointer', fontSize: '11px',
           }}>
-            {testing ? '⏳ Đang Copy...' : '🔄 Copy to Postgres'}
+            {testing ? '⏳ Copying...' : '🔄 Copy to Postgres'}
           </button>
 
           {testResult && (

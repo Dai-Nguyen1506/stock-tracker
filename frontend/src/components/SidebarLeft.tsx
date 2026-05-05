@@ -52,14 +52,12 @@ export const SidebarLeft: React.FC<SidebarLeftProps> = ({ news: liveNews, select
     
     const newItem: NewsItem = { symbol: latest.symbol, headline: latest.headline, url: latest.url, timestamp: latest.timestamp };
     
-    // Hiện popup Global News (tất cả các mã)
     setToastNews(newItem);
     const t = setTimeout(() => setToastNews(null), 5000);
     
     const baseSymbol = selectedSymbol.replace('USDT', '').toUpperCase();
     const newsSymbol = latest.symbol.toUpperCase();
     
-    // So khớp để đưa vào danh sách của mã hiện tại
     const isMatch = newsSymbol === baseSymbol || newsSymbol.startsWith(baseSymbol) || baseSymbol.startsWith(newsSymbol);
     
     if (isMatch) {
@@ -76,7 +74,6 @@ export const SidebarLeft: React.FC<SidebarLeftProps> = ({ news: liveNews, select
     if (!chatInput.trim() || isChatLoading) return;
     const userMsg = chatInput.trim();
     
-    // Lưu lịch sử chat
     const updatedHistory = [...chatHistory, { role: 'user' as const, text: userMsg }];
     setChatHistory(updatedHistory);
     setChatInput('');
@@ -89,13 +86,13 @@ export const SidebarLeft: React.FC<SidebarLeftProps> = ({ news: liveNews, select
           query: userMsg, 
           symbol: selectedSymbol, 
           interval: selectedInterval,
-          history: updatedHistory // Gửi toàn bộ lịch sử
+          history: updatedHistory
         })
       });
       const data = await res.json();
       if (data.response) setChatHistory(prev => [...prev, { role: 'ai', text: data.response }]);
     } catch {
-      setChatHistory(prev => [...prev, { role: 'ai', text: "Lỗi kết nối AI." }]);
+      setChatHistory(prev => [...prev, { role: 'ai', text: "AI Connection Error." }]);
     } finally {
       setIsChatLoading(false);
     }
@@ -110,7 +107,6 @@ export const SidebarLeft: React.FC<SidebarLeftProps> = ({ news: liveNews, select
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column', gap: '12px', overflow: 'hidden' }}>
       
-      {/* KHUNG TIN TỨC: ÉP CỨNG TỈ LỆ 55% */}
       <div className="glass-panel" style={{ position: 'relative', height: '55%', display: 'flex', flexDirection: 'column', padding: '12px', overflow: 'hidden', flexShrink: 0 }}>
         <h3 style={{ fontSize: '13px', fontWeight: '700', color: '#f8fafc', marginBottom: '8px' }}>📰 News Feed</h3>
         <div ref={scrollRef} style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '6px' }}>
@@ -136,7 +132,6 @@ export const SidebarLeft: React.FC<SidebarLeftProps> = ({ news: liveNews, select
           }
         </div>
         
-        {/* Global News Popup (Toast) */}
         {toastNews && (
           <div style={{
             position: 'absolute', bottom: '12px', left: '12px', right: '12px',
@@ -144,7 +139,7 @@ export const SidebarLeft: React.FC<SidebarLeftProps> = ({ news: liveNews, select
             boxShadow: '0 4px 12px rgba(0,0,0,0.3)', zIndex: 10, animation: 'slide-up 0.3s ease-out'
           }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-              <span style={{ color: '#fff', fontWeight: '800', fontSize: '11px' }}>🔔 TIN TỨC MỚI ({toastNews.symbol})</span>
+              <span style={{ color: '#fff', fontWeight: '800', fontSize: '11px' }}>🔔 NEW NEWS ({toastNews.symbol})</span>
               <button onClick={() => setToastNews(null)} style={{ background: 'transparent', border: 'none', color: '#fff', cursor: 'pointer' }}>✕</button>
             </div>
             <p style={{ color: '#fff', fontSize: '11px', margin: 0, lineHeight: '1.4' }}>{toastNews.headline}</p>
@@ -152,15 +147,13 @@ export const SidebarLeft: React.FC<SidebarLeftProps> = ({ news: liveNews, select
         )}
       </div>
 
-      {/* KHUNG AI CHATBOT: ÉP CỨNG TỈ LỆ 45% */}
       <div className="glass-panel" style={{ height: '45%', display: 'flex', flexDirection: 'column', padding: '12px', overflow: 'hidden', flexShrink: 0 }}>
         <h3 style={{ fontSize: '13px', fontWeight: '700', color: '#f8fafc', marginBottom: '8px' }}>🤖 AI Assistant</h3>
         
-        {/* VÙNG CHỨA TIN NHẮN: BẮT BUỘC PHẢI CÓ MIN-HEIGHT: 0 ĐỂ SCROLL */}
         <div ref={chatScrollRef} style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '8px', minHeight: 0 }}>
           {chatHistory.length === 0 ? (
             <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#52525b', border: '1px dashed rgba(255,255,255,0.08)', borderRadius: '8px', fontSize: '10px' }}>
-              Hãy hỏi AI về {selectedSymbol}...
+              Ask AI about {selectedSymbol}...
             </div>
           ) : (
             chatHistory.map((msg, idx) => (
@@ -179,13 +172,12 @@ export const SidebarLeft: React.FC<SidebarLeftProps> = ({ news: liveNews, select
               </div>
             ))
           )}
-          {isChatLoading && <div style={{ fontSize: '10px', color: '#71717a' }}>AI đang phản hồi...</div>}
+          {isChatLoading && <div style={{ fontSize: '10px', color: '#71717a' }}>AI is thinking...</div>}
         </div>
 
-        {/* INPUT: CỐ ĐỊNH Ở ĐÁY KHUNG */}
         <div style={{ display: 'flex', gap: '5px', marginTop: 'auto' }}>
-          <input value={chatInput} onChange={(e) => setChatInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()} disabled={isChatLoading} placeholder="Hỏi AI..." style={{ flex: 1, background: 'rgba(0,0,0,0.2)', border: '1px solid rgba(255,255,255,0.08)', color: 'white', padding: '6px 10px', borderRadius: '5px', fontSize: '11px', outline: 'none' }} />
-          <button onClick={handleSendMessage} disabled={isChatLoading || !chatInput.trim()} style={{ padding: '6px 10px', background: '#3b82f6', border: 'none', borderRadius: '5px', color: 'white', cursor: 'pointer', fontSize: '11px', fontWeight: '600' }}>Gửi</button>
+          <input value={chatInput} onChange={(e) => setChatInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()} disabled={isChatLoading} placeholder="Type a message..." style={{ flex: 1, background: 'rgba(0,0,0,0.2)', border: '1px solid rgba(255,255,255,0.08)', color: 'white', padding: '6px 10px', borderRadius: '5px', fontSize: '11px', outline: 'none' }} />
+          <button onClick={handleSendMessage} disabled={isChatLoading || !chatInput.trim()} style={{ padding: '6px 10px', background: '#3b82f6', border: 'none', borderRadius: '5px', color: 'white', cursor: 'pointer', fontSize: '11px', fontWeight: '600' }}>Send</button>
         </div>
       </div>
     </div>

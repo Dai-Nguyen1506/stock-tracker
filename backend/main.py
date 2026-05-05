@@ -1,44 +1,43 @@
+import json
 from fastapi import FastAPI
 from contextlib import asynccontextmanager
-from routers import market, chat
+from fastapi.middleware.cors import CORSMiddleware
+from routers import market, chat, news, benchmark, websockets
 from core.redis_client import init_redis, close_redis, get_redis
 from core.postgres import init_pg
 from core.cassandra import get_session, close_session
-
-import json
+from core.logger import logger
 from ingestion.discovery import run_discovery_bootstrap
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # ── Startup ──
-    print("🚀 Connecting to Cassandra...")
+    """
+    Handles application startup and shutdown events.
+    """
+    logger.info("Connecting to Cassandra...")
     await get_session()
-    print("✅ Cassandra connected!")
+    logger.info("Cassandra connected.")
     
-    print("🚀 Connecting to Redis...")
+    logger.info("Connecting to Redis...")
     await init_redis()
     redis = get_redis()
-    print("✅ Redis connected!")
+    logger.info("Redis connected.")
 
-    print("🚀 Connecting to PostgreSQL...")
+    logger.info("Connecting to PostgreSQL...")
     await init_pg()
-    print("✅ PostgreSQL connected!")
+    logger.info("PostgreSQL connected.")
     
-    print("🌐 Running Discovery Service...")
+    logger.info("Running Discovery Service...")
     market_symbols = await run_discovery_bootstrap()
     await redis.set("market_symbols", json.dumps(market_symbols))
-    print("✅ Discovery complete!")
-    
-    print("🧠 Skipping Vector DB Warmup to prevent startup hang...")
+    logger.info("Discovery complete.")
     
     yield
-    # ── Shutdown ──
-    print("🛑 Closing Cassandra connection...")
-    await close_session()
-    print("🛑 Closing Redis connection...")
-    await close_redis()
 
-from fastapi.middleware.cors import CORSMiddleware
+    logger.info("Closing Cassandra connection...")
+    await close_session()
+    logger.info("Closing Redis connection...")
+    await close_redis()
 
 app = FastAPI(
     title="Stock Tracker API",
@@ -54,14 +53,17 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
 app.include_router(market.router, prefix="/api/v1/market", tags=["Market"])
-app.include_router(market.ws_router, prefix="/ws", tags=["WebSockets"])
+app.include_router(news.router, prefix="/api/v1/market/news", tags=["News"])
+app.include_router(benchmark.router, prefix="/api/v1/market", tags=["Benchmark"])
+app.include_router(websockets.router, prefix="/ws", tags=["WebSockets"])
 app.include_router(chat.router, prefix="/api/v1/chat", tags=["Chatbot"])
 
 @app.get("/health")
 async def health_check():
-    """Kiểm tra backend và DB có sống không"""
+    """
+    Health check endpoint to verify backend and database status.
+    """
     try:
         session = await get_session()
         stmt = await session.create_prepared("SELECT now() FROM system.local")

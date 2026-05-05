@@ -1,16 +1,29 @@
 import asyncpg
-import os
 import asyncio
+from core.config import settings
 
-PG_URL = os.getenv("PG_URL", "postgresql://user:password@postgres:5432/market_data")
 _pool = None
 
 async def init_pg():
+    """
+    Initializes the PostgreSQL connection pool and creates tables if they don't exist.
+    """
     global _pool
+    for i in range(5):
+        try:
+            _pool = await asyncpg.create_pool(settings.PG_URL, min_size=5, max_size=20)
+            break
+        except Exception as e:
+            if i == 4:
+                print(f"PostgreSQL init error after 5 retries: {e}")
+                return
+            await asyncio.sleep(2)
+    
+    if _pool is None:
+        return
+
     try:
-        _pool = await asyncpg.create_pool(PG_URL, min_size=5, max_size=20)
         async with _pool.acquire() as conn:
-            # Sử dụng một khối try-except nhỏ bên trong để bỏ qua lỗi duplicate nếu nhiều worker khởi tạo cùng lúc
             try:
                 await conn.execute("""
                     CREATE TABLE IF NOT EXISTS klines (
@@ -34,19 +47,21 @@ async def init_pg():
                         PRIMARY KEY (symbol, date_bucket, timestamp)
                     );
                 """)
-                print("✅ PostgreSQL initialized successfully!")
+                print("PostgreSQL initialized successfully.")
             except asyncpg.exceptions.UniqueViolationError:
-                # Nếu gặp lỗi này nghĩa là bảng đang được tạo bởi một process khác, có thể bỏ qua
-                print("⚠️ PostgreSQL tables already being created by another worker.")
+                print("PostgreSQL tables already being created by another worker.")
             except Exception as e:
                 if "duplicate_object" in str(e) or "already exists" in str(e).lower():
-                    print("⚠️ PostgreSQL tables already exist.")
+                    print("PostgreSQL tables already exist.")
                 else:
                     raise e
     except Exception as e:
-        print(f"❌ PostgreSQL init error: {e}")
+        print(f"PostgreSQL init error: {e}")
 
-async def get_pg_pool():
+async def get_pg_pool() -> asyncpg.Pool:
+    """
+    Returns the initialized PostgreSQL pool.
+    """
     global _pool
     if _pool is None:
         await init_pg()

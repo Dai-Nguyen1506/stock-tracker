@@ -1,20 +1,17 @@
 import httpx
 import os
-from contextlib import suppress
+from core.config import settings
 
-def get_optimized_crypto_lists(binance_raw_list, alpaca_raw_list):
+def get_optimized_crypto_lists(binance_raw_list: list, alpaca_raw_list: list) -> dict:
     """
-    Xử lý và phân loại danh sách Crypto từ Binance và Alpaca.
-    - priority_list: Có ở cả 2 sàn, ưu tiên các mã 'hot'.
-    - remainder_list: Chỉ có ở Binance.
+    Processes and categorizes crypto lists from Binance and Alpaca.
     """
-    
     HOT_TICKERS = ['BTC', 'ETH', 'SOL', 'BNB', 'XRP', 'DOGE', 'ADA', 'TRX', 'LINK', 'AVAX']
 
-    def get_base(s):
+    def get_base(s: str) -> str:
         s = s.upper()
-        if '/' in s: return s.split('/')[0] # Cho Alpaca
-        if s.endswith('USDT'): return s.replace('USDT', '') # Cho Binance
+        if '/' in s: return s.split('/')[0]
+        if s.endswith('USDT'): return s.replace('USDT', '')
         return s
 
     binance_bases = {get_base(s) for s in binance_raw_list}
@@ -29,7 +26,7 @@ def get_optimized_crypto_lists(binance_raw_list, alpaca_raw_list):
 
     remainder_final_bases = sorted(list(only_binance_bases))
 
-    result = {
+    return {
         "priority_list": [
             {"base": b, "alpaca": f"{b}/USD", "binance": f"{b.lower()}usdt"} 
             for b in priority_final_bases
@@ -40,11 +37,10 @@ def get_optimized_crypto_lists(binance_raw_list, alpaca_raw_list):
         ]
     }
 
-    return result
-
-
-async def get_active_usdt_symbols(limit=1000):
-    """Lấy danh sách mã USDT đang TRADING trên Binance."""
+async def get_active_usdt_symbols(limit: int = 1000) -> list:
+    """
+    Retrieves the list of active USDT pairs from Binance.
+    """
     url = "https://api.binance.com/api/v3/exchangeInfo"
     async with httpx.AsyncClient(timeout=30.0) as client:
         try:
@@ -57,13 +53,15 @@ async def get_active_usdt_symbols(limit=1000):
                     symbols.append(s["symbol"].lower())
             return symbols[:limit]
         except Exception as e:
-            print(f"Lỗi khi lấy danh sách mã Binance: {e}")
+            print(f"Error fetching Binance symbols: {e}")
             return []
 
-async def get_alpaca_crypto_symbols(api_key, secret_key):
-    """Lấy danh sách mã Crypto từ Alpaca."""
+async def get_alpaca_crypto_symbols(api_key: str, secret_key: str) -> list:
+    """
+    Retrieves the list of active crypto assets from Alpaca.
+    """
     if not api_key or not secret_key:
-        print("Cảnh báo: Chưa cấu hình ALPACA_API_KEY/SECRET_KEY. Trả về mảng rỗng.")
+        print("Warning: ALPACA_API_KEY_ID or ALPACA_API_SECRET_KEY is missing.")
         return []
         
     url = "https://paper-api.alpaca.markets/v2/assets"
@@ -72,10 +70,7 @@ async def get_alpaca_crypto_symbols(api_key, secret_key):
         "APCA-API-KEY-ID": api_key,
         "APCA-API-SECRET-KEY": secret_key
     }
-    params = {
-        "asset_class": "crypto", 
-        "status": "active"
-    }
+    params = {"asset_class": "crypto", "status": "active"}
 
     async with httpx.AsyncClient(timeout=30.0) as client:
         try:
@@ -84,25 +79,25 @@ async def get_alpaca_crypto_symbols(api_key, secret_key):
             crypto_assets = response.json()
             return [asset['symbol'] for asset in crypto_assets]
         except Exception as e:
-            print(f"Lỗi khi cấu hình/kết nối Alpaca REST: {e}")
+            print(f"Error connecting to Alpaca API: {e}")
             return []
 
-async def run_discovery_bootstrap():
-    """Chạy đồng bộ hoá và bootstrap danh sách symbols khi khởi động app."""
-    # Thường lấy từ biến môi trường (Core config)
-    API_KEY = os.getenv("ALPACA_API_KEY_ID", "")
-    SECRET_KEY = os.getenv("ALPACA_API_SECRET_KEY", "")
+async def run_discovery_bootstrap() -> dict:
+    """
+    Synchronizes and categorizes market symbols on startup.
+    """
+    api_key = settings.ALPACA_API_KEY_ID
+    secret_key = settings.ALPACA_API_SECRET_KEY
     
     binance_symbols = await get_active_usdt_symbols(limit=1000)
-    alpaca_symbols = await get_alpaca_crypto_symbols(API_KEY, SECRET_KEY)
+    alpaca_symbols = await get_alpaca_crypto_symbols(api_key, secret_key)
     
-    # Nếu Alpaca không lấy được thì tạo mock từ danh sách Binance để test trước
     if not alpaca_symbols:
         alpaca_symbols = ["BTC/USD", "ETH/USD", "SOL/USD"]
         
     processed_data = get_optimized_crypto_lists(binance_symbols, alpaca_symbols)
     
-    print(f"✅ Đã phân loại: {len(processed_data['priority_list'])} priority (có ở 2 kho) & {len(processed_data['remainder_list'])} remainder (chỉ Binance).")
+    print(f"Discovery: {len(processed_data['priority_list'])} priority pairs, {len(processed_data['remainder_list'])} remainder pairs.")
     return processed_data
 
 if __name__ == "__main__":
@@ -110,4 +105,4 @@ if __name__ == "__main__":
     loop = asyncio.get_event_loop()
     data = loop.run_until_complete(run_discovery_bootstrap())
     if data["priority_list"]:
-        print(f"Ví dụ đầu priority: {data['priority_list'][:3]}")
+        print(f"Example priority symbols: {data['priority_list'][:3]}")
