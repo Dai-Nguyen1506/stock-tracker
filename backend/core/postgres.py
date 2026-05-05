@@ -6,8 +6,8 @@ _pool = None
 
 async def init_pg(run_ddl: bool = False):
     """
-    Initializes the PostgreSQL connection pool. 
-    Optional: runs DDL to create tables if run_ddl is True.
+    Initializes the PostgreSQL connection pool.
+    Schema is handled by docker-entrypoint-initdb.d/init.sql.
     """
     global _pool
     if _pool is not None:
@@ -22,38 +22,6 @@ async def init_pg(run_ddl: bool = False):
                 print(f"PostgreSQL init error after 5 retries: {e}")
                 return None
             await asyncio.sleep(2)
-    
-    if _pool is not None and run_ddl:
-        try:
-            async with _pool.acquire() as conn:
-                await conn.execute("""
-                    CREATE TABLE IF NOT EXISTS klines (
-                        symbol VARCHAR(20),
-                        interval VARCHAR(10),
-                        date_bucket DATE,
-                        timestamp BIGINT,
-                        open VARCHAR(30),
-                        high VARCHAR(30),
-                        low VARCHAR(30),
-                        close VARCHAR(30),
-                        volume VARCHAR(30),
-                        PRIMARY KEY (symbol, interval, date_bucket, timestamp)
-                    );
-                    CREATE TABLE IF NOT EXISTS orderbooks (
-                        symbol VARCHAR(20),
-                        date_bucket DATE,
-                        timestamp BIGINT,
-                        bids TEXT,
-                        asks TEXT,
-                        PRIMARY KEY (symbol, date_bucket, timestamp)
-                    );
-                """)
-                print("PostgreSQL schema initialized.")
-        except Exception as e:
-            if "already exists" in str(e).lower() or "duplicate" in str(e).lower():
-                print("PostgreSQL tables already exist.")
-            else:
-                print(f"PostgreSQL DDL error: {e}")
     
     return _pool
 

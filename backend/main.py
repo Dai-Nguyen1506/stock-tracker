@@ -7,6 +7,7 @@ from core.redis_client import init_redis, close_redis, get_redis
 from core.postgres import init_pg
 from core.cassandra import get_session, close_session
 from core.logger import logger
+from core.exceptions import register_exception_handlers
 from ingestion.discovery import run_discovery_bootstrap
 
 @asynccontextmanager
@@ -24,7 +25,7 @@ async def lifespan(app: FastAPI):
     logger.info("Redis connected.")
 
     logger.info("Connecting to PostgreSQL...")
-    await init_pg(run_ddl=True)
+    await init_pg()
     logger.info("PostgreSQL connected.")
     
     logger.info("Running Discovery Service...")
@@ -44,6 +45,8 @@ app = FastAPI(
     version="0.1.0",
     lifespan=lifespan,
 )
+
+register_exception_handlers(app)
 
 app.add_middleware(
     CORSMiddleware,

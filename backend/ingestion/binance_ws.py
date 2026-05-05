@@ -195,9 +195,9 @@ async def flush_worker(session, redis_client):
             
         batches = []
         for symbol, stmts in grouped.items():
-            for i in range(0, len(stmts), 15):
+            for i in range(0, len(stmts), 100):
                 batch = acsylla.create_batch_unlogged()
-                for s in stmts[i:i+15]:
+                for s in stmts[i:i+100]:
                     batch.add_statement(s)
                 batches.append(batch)
 

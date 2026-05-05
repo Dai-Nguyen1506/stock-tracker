@@ -6,7 +6,7 @@ services:
       CASSANDRA_CLUSTER_NAME: "StockCluster"
       CASSANDRA_DC: "datacenter1"
       CASSANDRA_ENDPOINT_SNITCH: "GossipingPropertyFileSnitch"
-      MAX_HEAP_SIZE: "2G"     # Tăng lên 2G cho 11k writes/s
+      MAX_HEAP_SIZE: "2G"
       HEAP_NEWSIZE: "512M"
     ports:
       - "9042:9042"
@@ -15,6 +15,12 @@ services:
     networks:
       - stock_network
     restart: unless-stopped
+    command: >
+      /bin/bash -c "
+      sed -i '/batch_size/d' /etc/cassandra/cassandra.yaml &&
+      echo 'batch_size_warn_threshold: 128KiB' >> /etc/cassandra/cassandra.yaml &&
+      echo 'batch_size_fail_threshold: 512KiB' >> /etc/cassandra/cassandra.yaml &&
+      exec /usr/local/bin/docker-entrypoint.sh cassandra -f"
     logging:
       options:
         max-size: "10m"
@@ -138,7 +144,8 @@ services:
     networks:
       - stock_network
     restart: unless-stopped
-    # Không map volume để xoá sạch dữ liệu khi tắt container
+    volumes:
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
 
   ingestion-binance:
     build: ./backend
