@@ -148,7 +148,7 @@ class NewsService:
         Fetches news from Alpaca Data API with optional time range.
         """
         safe_limit = min(limit, 50)
-        url = f"https://data.alpaca.markets/v1beta1/news?symbols={symbol}&limit={safe_limit}"
+        url = f"{settings.ALPACA_DATA_URL}/news?symbols={symbol}&limit={safe_limit}"
         if start:
             url += f"&start={start.strftime('%Y-%m-%dT%H:%M:%SZ')}"
         if end:

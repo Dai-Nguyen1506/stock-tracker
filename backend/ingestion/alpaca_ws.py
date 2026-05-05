@@ -10,8 +10,6 @@ from core.vector_db import get_news_collection, push_to_ai_vector_embedder
 from ingestion.discovery import run_discovery_bootstrap
 from core.config import settings
 from core.logger import logger
-
-ALPACA_WS_URL = "wss://stream.data.alpaca.markets/v1beta1/news"
 _prepared_news_stmt = None
 _allowed_symbols = set()
 
@@ -183,7 +181,7 @@ async def run_news_stream(api_key, secret_key, symbols):
     await run_startup_news_backfill(session, symbols, api_key, secret_key)
     
     logger.info(f"[Ingestion] Connecting to Alpaca News WS for {len(symbols)} symbols...")
-    async with websockets.connect(ALPACA_WS_URL, open_timeout=60, ping_interval=20, ping_timeout=20) as ws:
+    async with websockets.connect(settings.ALPACA_WS_URL, open_timeout=60, ping_interval=20, ping_timeout=20) as ws:
         await ws.send(json.dumps({"action": "auth", "key": api_key, "secret": secret_key}))
         await ws.recv()
         await ws.send(json.dumps({"action": "subscribe", "news": symbols}))

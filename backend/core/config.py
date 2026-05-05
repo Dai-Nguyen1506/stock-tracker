@@ -20,6 +20,15 @@ class Settings(BaseSettings):
     CHROMA_HOST: str = "chromadb"
     CHROMA_PORT: int = 8000
     
+    # Binance URLs
+    BINANCE_API_URL: str = "https://api.binance.com/api/v3"
+    BINANCE_WS_URL: str = "wss://stream.binance.com:9443/stream"
+    
+    # Alpaca URLs
+    ALPACA_API_URL: str = "https://paper-api.alpaca.markets/v2"
+    ALPACA_DATA_URL: str = "https://data.alpaca.markets/v1beta1"
+    ALPACA_WS_URL: str = "wss://stream.data.alpaca.markets/v1beta1/news"
+    
     # AI Keys
     GEMINI_API_KEY: str = ""
     ALPACA_API_KEY_ID: str = ""

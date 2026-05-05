@@ -4,6 +4,7 @@ import time
 from datetime import datetime, timezone, timedelta
 from repositories.kline_repo import KlineRepository
 from repositories.symbol_repo import SymbolRepository
+from core.config import settings
 from core.logger import logger
 
 class MarketService:
@@ -113,7 +114,7 @@ class MarketService:
         """
         Fetches kline data directly from the Binance REST API.
         """
-        url = f"https://api.binance.com/api/v3/klines?symbol={symbol}&interval={interval}&limit={limit}"
+        url = f"{settings.BINANCE_API_URL}/klines?symbol={symbol}&interval={interval}&limit={limit}"
         if before_ts:
             url += f"&endTime={int(before_ts) - 1000}"
             

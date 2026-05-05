@@ -10,9 +10,8 @@ from core.cassandra import get_session
 from core.redis_client import init_redis, get_redis
 from core.postgres import get_pg_pool
 from ingestion.discovery import run_discovery_bootstrap
+from core.config import settings
 from core.logger import logger
-
-BINANCE_WS_URL = "wss://stream.binance.com:9443/stream"
 redis_queue = asyncio.Queue()
 
 async def redis_publisher_worker():
@@ -270,7 +269,7 @@ async def run_binance_combined_stream(symbols):
     
     logger.info(f"[Ingestion] Connecting: Subscribing to {len(symbols)} symbols...")
     
-    async with websockets.connect(BINANCE_WS_URL, open_timeout=60, ping_interval=20, ping_timeout=20) as ws:
+    async with websockets.connect(settings.BINANCE_WS_URL, open_timeout=60, ping_interval=20, ping_timeout=20) as ws:
         chunk_size = 50
         symbol_list = list(symbols)
         

@@ -42,7 +42,7 @@ async def get_active_usdt_symbols(limit: int = 1000) -> list:
     """
     Retrieves the list of active USDT pairs from Binance.
     """
-    url = "https://api.binance.com/api/v3/exchangeInfo"
+    url = f"{settings.BINANCE_API_URL}/exchangeInfo"
     async with httpx.AsyncClient(timeout=30.0) as client:
         try:
             response = await client.get(url)
@@ -65,7 +65,7 @@ async def get_alpaca_crypto_symbols(api_key: str, secret_key: str) -> list:
         logger.warning("[App] Discovery - Alpaca keys missing.")
         return []
         
-    url = "https://paper-api.alpaca.markets/v2/assets"
+    url = f"{settings.ALPACA_API_URL}/assets"
     headers = {
         "accept": "application/json",
         "APCA-API-KEY-ID": api_key,

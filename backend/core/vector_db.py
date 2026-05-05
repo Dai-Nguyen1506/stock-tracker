@@ -1,10 +1,16 @@
+import os
+import time
 import chromadb
 from chromadb.config import Settings
-import time
-import os
+from core.config import settings
 from core.logger import logger
 
-CHROMA_HOST = os.getenv("CHROMA_HOST", "chromadb")
+try:
+    import posthog
+    posthog.capture = lambda *args, **kwargs: None
+except (ImportError, AttributeError):
+    pass
+
 _chroma_client = None
 
 def get_chroma_client():
@@ -16,8 +22,8 @@ def get_chroma_client():
         for i in range(3):
             try:
                 _chroma_client = chromadb.HttpClient(
-                    host=CHROMA_HOST, 
-                    port=8000,
+                    host=settings.CHROMA_HOST, 
+                    port=settings.CHROMA_PORT,
                     settings=Settings(allow_reset=True, anonymized_telemetry=False)
                 )
                 logger.info("[VectorDB] Connected to ChromaDB")
