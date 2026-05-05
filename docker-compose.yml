@@ -20,11 +20,11 @@ services:
         max-size: "10m"
         max-file: "3"
     healthcheck:
-      test: ["CMD-SHELL", "cqlsh -e 'describe keyspaces' || exit 1"]
-      interval: 20s
+      test: ["CMD-SHELL", "cqlsh cassandra 9042 -e 'describe keyspaces' || exit 1"]
+      interval: 15s
       timeout: 10s
       retries: 10
-      start_period: 60s   # Cassandra khởi động chậm, chờ 60s trước khi check
+      start_period: 90s   # Cassandra khởi động chậm, chờ 90s trước khi check
 
   # ── 1.1 SCHEMA INIT ──────────────────────────────────
   cassandra-init:
@@ -36,15 +36,16 @@ services:
       - ./cassandra/init.cql:/init.cql:ro
     networks:
       - stock_network
-    entrypoint: ["/bin/bash", "-c"]
     command: >
-      "set -e;
-       until cqlsh cassandra 9042 -e 'describe keyspaces'; do
-         echo 'Waiting for Cassandra to accept CQL...';
-         sleep 5;
-       done;
-       cqlsh cassandra 9042 -f /init.cql;
-       echo 'Cassandra schema initialized.'"
+      /bin/bash -c "
+      set -e;
+      echo 'Waiting for Cassandra port 9042 to be fully ready...';
+      until cqlsh cassandra 9042 -e 'describe keyspaces' > /dev/null 2>&1; do
+        sleep 5;
+      done;
+      echo 'Cassandra is up! Running init.cql...';
+      cqlsh cassandra 9042 -f /init.cql;
+      echo 'Cassandra schema initialized successfully.'"
     restart: "no"
 
   # ── 1.2 VECTOR DB & CACHE ────────────────────────────
@@ -86,6 +87,7 @@ services:
       REDIS_URL: redis://redis:6379/0
       PG_URL: postgresql://user:password@postgres:5432/market_data
       CHROMA_HOST: chromadb
+      ANONYMIZED_TELEMETRY: "False"
     volumes:
       - ./backend:/app
       - ./.cache:/home/appuser/.cache
@@ -143,6 +145,8 @@ services:
       REDIS_URL: redis://redis:6379/0
       PG_URL: postgresql://user:password@postgres:5432/market_data
       PYTHONPATH: /app
+    volumes:
+      - ./backend:/app
     depends_on:
       cassandra-init:
         condition: service_completed_successfully
@@ -163,6 +167,7 @@ services:
       CASSANDRA_HOST: cassandra
       REDIS_URL: redis://redis:6379/0
       CHROMA_HOST: chromadb
+      ANONYMIZED_TELEMETRY: "False"
       PYTHONPATH: /app
       HF_HOME: /tmp/hf_cache
       SENTENCE_TRANSFORMERS_HOME: /tmp/st_cache

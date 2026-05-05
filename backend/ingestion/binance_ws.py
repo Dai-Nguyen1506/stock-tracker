@@ -8,6 +8,21 @@ from core.redis_client import init_redis, get_redis
 
 BINANCE_WS_URL = "wss://stream.binance.com:9443/stream"
 
+# Hàng đợi tin nhắn Redis để tránh lỗi "Too many connections"
+redis_queue = asyncio.Queue()
+
+async def redis_publisher_worker():
+    """Lấy tin nhắn từ hàng đợi và gửi lên Redis một cách ổn định"""
+    while True:
+        channel, payload = await redis_queue.get()
+        try:
+            redis_client = get_redis()
+            await redis_client.publish(channel, payload)
+        except Exception:
+            pass 
+        finally:
+            redis_queue.task_done()
+
 _prepared_depth_stmt = None
 _prepared_kline_stmt = None
 
@@ -147,7 +162,8 @@ async def process_trade_message(symbol, data):
                 "close": fmt(candle_1m['close']),
                 "volume": fmt(candle_1m['volume'])
             })
-            asyncio.create_task(redis_client.publish(f"live:klines:{symbol}", payload))
+            # Đẩy vào hàng đợi thay vì tạo Task mới liên tục
+            redis_queue.put_nowait((f"live:klines:{symbol}", payload))
         except Exception as redis_e:
             pass
     except Exception as e:
@@ -239,31 +255,28 @@ async def flush_worker(session, redis_client):
         if total_all == 0:
             continue
             
-        # Tối ưu hóa CPU: Lặp đơn giản và batching siêu tốc (Cassandra C-driver cực nhanh)
+        # Giải pháp Fix triệt để: Gom nhóm theo Symbol và chia nhỏ Batch < 5KB
         import acsylla
+        from collections import defaultdict
         
-        # Sắp xếp current_depth theo symbol để các record cùng symbol đứng cạnh nhau
-        # Điều này giúp batching cực nhanh mà không cần defaultdict tốn CPU
-        current_depth.sort(key=lambda x: x[1][0])
-        
-        batches = []
-        # Batch klines: Do kline ít (chỉ vài trăm), chạy execute thẳng sẽ nhanh hơn tạo batch
-        # nhưng để nhất quán ta batch 100 cái 1 lô unlogged
-        for i in range(0, len(current_kline), 100):
-            batch = acsylla.create_batch_unlogged()
-            for b in current_kline[i:i+100]:
-                batch.add_statement(b[0])
-            batches.append(batch)
+        # 1. Gom tất cả câu lệnh theo Symbol (Partition Key)
+        # Việc dùng defaultdict nhanh hơn và giúp gom nhóm chính xác 100%
+        grouped = defaultdict(list)
+        for stmt, params in current_kline:
+            grouped[params[0]].append(stmt)
+        for stmt, params in current_depth:
+            grouped[params[0]].append(stmt)
             
-        # Batch depths: Đã sort theo symbol nên các record cùng symbol nằm liền nhau.
-        # Rất an toàn để batch từng cục 100-200.
-        for i in range(0, len(current_depth), 200):
-            batch = acsylla.create_batch_unlogged()
-            for b in current_depth[i:i+200]:
-                batch.add_statement(b[0])
-            batches.append(batch)
+        # 2. Nâng lên 15 bản ghi/batch để giảm số lượng request (vẫn đảm bảo < 5KB) cho từng Symbol
+        batches = []
+        for symbol, stmts in grouped.items():
+            for i in range(0, len(stmts), 15):
+                batch = acsylla.create_batch_unlogged()
+                for s in stmts[i:i+15]:
+                    batch.add_statement(s)
+                batches.append(batch)
 
-        sem = asyncio.Semaphore(500)
+        sem = asyncio.Semaphore(1000) # Tăng giới hạn song song để giảm latency
         async def exec_batch(batch):
             async with sem:
                 try:
@@ -332,6 +345,11 @@ async def run_binance_combined_stream(symbols):
     
     asyncio.create_task(run_startup_backfill(session, symbols))
     asyncio.create_task(flush_worker(session, redis_client))
+    
+    # Chạy 10 workers song song để đảm bảo đẩy dữ liệu lên Redis siêu tốc
+    # mà vẫn kiểm soát được số lượng kết nối.
+    for _ in range(10):
+        asyncio.create_task(redis_publisher_worker())
     
     streams = []
     for s in symbols:

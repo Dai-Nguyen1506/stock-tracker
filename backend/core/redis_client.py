@@ -10,7 +10,7 @@ async def init_redis():
             settings.REDIS_URL,
             encoding="utf-8",
             decode_responses=True,
-            max_connections=100
+            max_connections=500
         )
     return _redis_pool
 
