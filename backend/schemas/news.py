@@ -9,4 +9,6 @@ class NewsItem(BaseModel):
 
 class NewsHistoryResponse(BaseModel):
     data: List[NewsItem]
+    year: int
+    month: int
     error: Optional[str] = None

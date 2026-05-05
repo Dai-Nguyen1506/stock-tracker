@@ -3,24 +3,28 @@
 :root {
   /* Premium Dark Mode Colors */
   --bg-core: #09090b;
-  --bg-surface: rgba(24, 24, 27, 0.6); /* Glassmorphism Base */
+  --bg-surface: rgba(24, 24, 27, 0.6);
+  /* Glassmorphism Base */
   --bg-panel: #18181b;
   --bg-hover: #27272a;
-  
+
   --border-color: rgba(255, 255, 255, 0.08);
   --border-highlight: rgba(255, 255, 255, 0.15);
-  
+
   --text-primary: #f8fafc;
   --text-secondary: #a1a1aa;
   --text-muted: #71717a;
-  
+
   /* Neon Accents */
-  --accent-up: #10b981;    /* Neon Green */
+  --accent-up: #10b981;
+  /* Neon Green */
   --accent-up-glow: rgba(16, 185, 129, 0.2);
-  --accent-down: #f43f5e;  /* Neon Red/Pink */
+  --accent-down: #f43f5e;
+  /* Neon Red/Pink */
   --accent-down-glow: rgba(244, 63, 94, 0.2);
-  --accent-brand: #3b82f6; /* Blue */
-  
+  --accent-brand: #3b82f6;
+  /* Blue */
+
   --font-sans: 'Inter', system-ui, sans-serif;
 }
 
@@ -40,8 +44,17 @@ body {
 
 /* Keyframe animations */
 @keyframes pulse {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.4; transform: scale(0.85); }
+
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+
+  50% {
+    opacity: 0.4;
+    transform: scale(0.85);
+  }
 }
 
 /* Glassmorphism Panel Utility */
@@ -58,25 +71,42 @@ body {
   width: 6px;
   height: 6px;
 }
+
 ::-webkit-scrollbar-track {
   background: transparent;
 }
+
 ::-webkit-scrollbar-thumb {
   background: var(--bg-hover);
   border-radius: 4px;
 }
+
 ::-webkit-scrollbar-thumb:hover {
   background: var(--text-muted);
 }
 
 @keyframes slideUp {
-  from { transform: translate(-50%, 20px); opacity: 0; }
-  to { transform: translate(-50%, 0); opacity: 1; }
+  from {
+    transform: translate(-50%, 20px);
+    opacity: 0;
+  }
+
+  to {
+    transform: translate(-50%, 0);
+    opacity: 1;
+  }
 }
 
 @keyframes pulse-new {
-  0% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.4); }
-  70% { box-shadow: 0 0 0 10px rgba(16, 185, 129, 0); }
-  100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
-}
+  0% {
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.4);
+  }
 
+  70% {
+    box-shadow: 0 0 0 10px rgba(16, 185, 129, 0);
+  }
+
+  100% {
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0);
+  }
+}

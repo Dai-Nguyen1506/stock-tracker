@@ -101,26 +101,62 @@ class ChatService:
         base_symbol = full_symbol.replace("USDT", "")
         current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
+        # --- NEW: Intelligent Month Detection for RAG ---
+        month_map = {
+            "tháng 1": 1, "tháng 2": 2, "tháng 3": 3, "tháng 4": 4, "tháng 5": 5, "tháng 6": 6,
+            "tháng 7": 7, "tháng 8": 8, "tháng 9": 9, "tháng 10": 10, "tháng 11": 11, "tháng 12": 12,
+            "january": 1, "february": 2, "march": 3, "april": 4, "may": 5, "june": 6,
+            "july": 7, "august": 8, "september": 9, "october": 10, "november": 11, "december": 12
+        }
+        
+        target_month = None
+        target_year = datetime.now().year
+        query_lower = query.lower()
+        for m_name, m_val in month_map.items():
+            if m_name in query_lower:
+                target_month = m_val
+                break
+        
         collection = get_news_collection()
         context_news = "No new news found."
         if collection:
             try:
                 count = collection.count()
                 if count > 0:
-                    fetch_n = 15
+                    fetch_n = 25 # Tăng thêm số lượng tìm kiếm
                     query_params = {"query_texts": [query], "n_results": min(fetch_n, count)}
-                    if symbol_from_query:
-                        query_params["where"] = {"symbol": base_symbol}
+                    
+                    # Metadata Filter: Always filter by symbol
+                    where_clauses = [{"symbol": base_symbol}]
+                    
+                    if target_month:
+                        import calendar
+                        start_dt = datetime(target_year, target_month, 1)
+                        last_day = calendar.monthrange(target_year, target_month)[1]
+                        end_dt = datetime(target_year, target_month, last_day, 23, 59, 59)
+                        
+                        start_ts = int(start_dt.timestamp() * 1000)
+                        end_ts = int(end_dt.timestamp() * 1000)
+                        
+                        where_clauses.append({"timestamp": {"$gte": start_ts}})
+                        where_clauses.append({"timestamp": {"$lte": end_ts}})
+                        logger.info(f"📅 [Chat] Filtering news for month {target_month}/{target_year}")
+
+                    if len(where_clauses) > 1:
+                        query_params["where"] = {"$and": where_clauses}
+                    else:
+                        query_params["where"] = where_clauses[0]
 
                     res = collection.query(**query_params)
                     if res['documents'] and res['documents'][0]:
                         combined = []
                         for doc, meta in zip(res['documents'][0], res['metadatas'][0]):
                             combined.append({"doc": doc, "meta": meta, "ts": meta.get("timestamp", 0)})
-                        combined.sort(key=lambda x: x["ts"], reverse=True)
+                        
+                        logger.info(f"🧠 [Chat] Found {len(combined)} news items after filtering.")
                         
                         news_list = []
-                        for item in combined[:5]:
+                        for item in combined[:10]: # Cho AI đọc 10 tin cho đầy đủ
                             ts_ms = item["ts"]
                             doc = item["doc"]
                             if ts_ms:
@@ -130,6 +166,8 @@ class ChatService:
                             else:
                                 news_list.append(f"- {doc}")
                         context_news = "\n".join(news_list)
+                    else:
+                        logger.info(f"⚠️ [Chat] No matching news found in VectorDB for the filter.")
             except Exception as e: 
                 logger.warning(f"RAG query failed: {e}")
 
