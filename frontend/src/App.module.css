@@ -1,0 +1,41 @@
+.appContainer {
+  display: grid;
+  grid-template-columns: 300px 1fr 320px;
+  gap: 12px;
+  height: 100vh;
+  padding: 12px;
+  overflow: hidden;
+}
+
+.leftCol, .rightCol {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  height: 100%;
+  min-height: 0;
+}
+
+.midCol {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  height: 100%;
+  min-height: 0;
+}
+
+/* Base style cho các panel */
+.panel {
+  display: flex;
+  flex-direction: column;
+  border-radius: 12px;
+  overflow: hidden;
+  min-height: 0;
+}
+
+/* Chart lớn hơn, depth compact hơn */
+.newsPanel { flex: 62; }
+.botPanel { flex: 38; }
+
+.chartPanel { flex: 68; min-height: 0; }
+.depthPanel { flex: 32; min-height: 0; }
+

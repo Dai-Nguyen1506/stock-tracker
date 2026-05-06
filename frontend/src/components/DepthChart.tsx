@@ -1,0 +1,162 @@
+import React, { useEffect, useState } from 'react';
+
+interface DepthChartProps {
+  selectedSymbol: string;
+}
+
+interface Level {
+  price: number;
+  amount: number;
+  total: number;
+  pct: number;
+}
+
+function buildLevels(raw: [string, string][], side: 'bids' | 'asks', n = 10): Level[] {
+  const sorted = raw
+    .map(([p, q]) => ({ price: parseFloat(p), amount: parseFloat(q) }))
+    .filter(x => x.amount > 0)
+    .sort((a, b) => side === 'bids' ? b.price - a.price : a.price - b.price)
+    .slice(0, n);
+
+  let acc = 0;
+  const withTotal = sorted.map(x => {
+    acc += x.amount;
+    return { ...x, total: acc };
+  });
+  const max = withTotal[withTotal.length - 1]?.total || 1;
+  return withTotal.map(x => ({ ...x, pct: (x.total / max) * 100 }));
+}
+
+export const DepthChart: React.FC<DepthChartProps> = ({ selectedSymbol }) => {
+  const [asks, setAsks] = useState<Level[]>([]);
+  const [bids, setBids] = useState<Level[]>([]);
+  
+  const [tradeSpeed, setTradeSpeed] = useState<string | number>(0);
+  const [depthSpeed, setDepthSpeed] = useState<number>(0);
+  const [totalSpeed, setTotalSpeed] = useState<number>(0);
+  const [latency, setLatency] = useState<string | number>(0);
+  const [pgLatency, setPgLatency] = useState<string | number>(0);
+  const [time, setTime] = useState<string>('');
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setTime(new Date().toLocaleTimeString('en-US'));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  // ── ORDERBOOK WESBSOCKET ───────────────────────
+  useEffect(() => {
+    let currentMidPrice = 60000; // Price reference for generating mock data
+
+    const intervalId = setInterval(() => {
+      // Price fluctuates randomly around the currentMidPrice to simulate market movement
+      currentMidPrice += (Math.random() - 0.5) * 10;
+
+      const rawBids: [string, string][] = [];
+      const rawAsks: [string, string][] = [];
+
+      for (let i = 0; i < 15; i++) {
+        // Bids: Price lower than midPrice
+        const bidPrice = (currentMidPrice - (i * 2) - Math.random() * 5).toFixed(2);
+        const bidQty = (Math.random() * 2).toFixed(4);
+        rawBids.push([bidPrice, bidQty]);
+
+        // Asks: Price higher than midPrice
+        const askPrice = (currentMidPrice + (i * 2) + Math.random() * 5).toFixed(2);
+        const askQty = (Math.random() * 2).toFixed(4);
+        rawAsks.push([askPrice, askQty]);
+      }
+
+      const newBids = buildLevels(rawBids, 'bids', 10);
+      const newAsks = buildLevels(rawAsks, 'asks', 10);
+      
+      setBids(newBids);
+      setAsks(newAsks);
+
+      const bestBid = newBids[0]?.price;
+      const bestAsk = newAsks[0]?.price;
+      
+      if (bestBid && bestAsk) {
+         const ev = new CustomEvent('midPriceUpdate', { detail: (bestBid + bestAsk) / 2 });
+         window.dispatchEvent(ev);
+      }
+
+    }, 500); // Update every 500ms to create a realtime feel like WebSocket
+
+    return () => clearInterval(intervalId);
+  }, [selectedSymbol]);
+
+  // ── POLLING API
+  useEffect(() => {
+    const pollMock = () => {
+      // Create random speeds and latencies to simulate backend performance metrics
+      setTradeSpeed(Math.floor(450 + Math.random() * 50));
+      setDepthSpeed(Math.floor(1200 + Math.random() * 200));
+      setTotalSpeed(Math.floor(1650 + Math.random() * 250));
+      setLatency((Math.random() * 15 + 5).toFixed(1)); // 5ms - 20ms
+      setPgLatency((Math.random() * 30 + 10).toFixed(1)); // 10ms - 40ms
+    };
+
+    pollMock(); 
+    const t = setInterval(pollMock, 1000);
+    return () => clearInterval(t);
+  }, []);
+
+  const totalBid = bids.reduce((s, x) => s + x.amount, 0);
+  const totalAsk = asks.reduce((s, x) => s + x.amount, 0);
+  const bidPct = totalBid + totalAsk > 0 ? Math.round((totalBid / (totalBid + totalAsk)) * 100) : 50;
+
+  // ── RENDER ─────────────────────────────────
+  return (
+    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', padding: '10px 14px 8px' }}>
+
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+        <h3 style={{ fontSize: '13px', fontWeight: '700', color: '#f8fafc' }}>
+          ⚔️ Orderbook <span style={{ color: '#52525b', fontWeight: '400', fontSize: '11px' }}>· {selectedSymbol}</span>
+        </h3>
+      </div>
+
+      <div style={{ height: '8px', minHeight: '8px', borderRadius: '4px', overflow: 'hidden', display: 'flex', marginBottom: '4px', boxShadow: '0 0 6px rgba(0,0,0,0.4)', marginTop: '8px', flexShrink: 0 }}>
+        <div style={{ width: `${bidPct}%`, height: '100%', background: 'linear-gradient(90deg, #059669, #10b981)', transition: 'width 0.4s ease' }} />
+        <div style={{ flex: 1, height: '100%', background: 'linear-gradient(90deg, #f43f5e, #be123c)', transition: 'width 0.4s ease' }} />
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', marginBottom: '16px' }}>
+        <span style={{ color: '#10b981', fontWeight: '700' }}>Bid {bidPct}%</span>
+        <span style={{ color: '#f43f5e', fontWeight: '700' }}>Ask {100 - bidPct}%</span>
+      </div>
+
+      <div style={{ flex: 1, display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '8px', overflowY: 'auto', minHeight: 0, paddingRight: '4px' }}>
+        
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: 'rgba(59,130,246,0.05)', padding: '10px', borderRadius: '8px', border: '1px solid rgba(59,130,246,0.15)', flexShrink: 0 }}>
+          <div style={{ fontSize: '10px', color: '#3b82f6', marginBottom: '4px' }}>Candles Created</div>
+          <div style={{ fontSize: '18px', fontWeight: '700', color: '#3b82f6' }}>{tradeSpeed} <span style={{ fontSize: '10px', fontWeight: 'normal', color: '#52525b' }}>/ 1 min</span></div>
+        </div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: 'rgba(139,92,246,0.05)', padding: '10px', borderRadius: '8px', border: '1px solid rgba(139,92,246,0.15)', flexShrink: 0 }}>
+          <div style={{ fontSize: '10px', color: '#8b5cf6', marginBottom: '4px' }}>Depth Messages</div>
+          <div style={{ fontSize: '18px', fontWeight: '700', color: '#8b5cf6' }}>{depthSpeed} <span style={{ fontSize: '10px', fontWeight: 'normal', color: '#52525b' }}>/ 1 min</span></div>
+        </div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: 'rgba(245,158,11,0.05)', padding: '10px', borderRadius: '8px', border: '1px solid rgba(245,158,11,0.15)', flexShrink: 0 }}>
+          <div style={{ fontSize: '10px', color: '#f59e0b', marginBottom: '4px' }}>Total Records</div>
+          <div style={{ fontSize: '18px', fontWeight: '700', color: '#f59e0b' }}>{totalSpeed} <span style={{ fontSize: '10px', fontWeight: 'normal', color: '#52525b' }}>/ 1 min</span></div>
+        </div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: 'rgba(16,185,129,0.05)', padding: '10px', borderRadius: '8px', border: '1px solid rgba(16,185,129,0.15)', flexShrink: 0 }}>
+          <div style={{ fontSize: '10px', color: '#10b981', marginBottom: '4px' }}>Cassandra Write</div>
+          <div style={{ fontSize: '18px', fontWeight: '700', color: '#10b981' }}>{latency} <span style={{ fontSize: '10px', fontWeight: 'normal', color: '#52525b' }}>ms</span></div>
+        </div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: 'rgba(244,63,94,0.05)', padding: '10px', borderRadius: '8px', border: '1px solid rgba(244,63,94,0.15)', flexShrink: 0 }}>
+          <div style={{ fontSize: '10px', color: '#f43f5e', marginBottom: '4px' }}>Postgres Write</div>
+          <div style={{ fontSize: '18px', fontWeight: '700', color: '#f43f5e' }}>{pgLatency} <span style={{ fontSize: '10px', fontWeight: 'normal', color: '#52525b' }}>ms</span></div>
+        </div>
+      </div>
+
+      <div style={{ marginTop: 'auto', paddingTop: '10px', borderTop: '1px dashed rgba(255,255,255,0.1)', display: 'flex', justifyContent: 'center', fontSize: '11px' }}>
+        <span style={{ color: '#52525b' }}>{time}</span>
+      </div>
+    </div>
+  );
+};
