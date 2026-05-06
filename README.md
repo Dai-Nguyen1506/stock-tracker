@@ -1,6 +1,6 @@
 # Crypto Dashboard
 
-**Note:** This project is currently for **Frontend Testing only** using mock data. Full backend and database integration will be implemented in the next phase.
+**Note:** This project is currently for **Frontend Testing only** using mock data. Full backend and database integration will be implemented in the *main branch*.
 
 ## Quick Start (Local)
 1. **Navigate to folder:** `cd frontend`
