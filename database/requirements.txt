@@ -1,0 +1,8 @@
+cassandra-driver
+psycopg2-binary
+redis
+chromadb
+pandas
+ipykernel
+notebook
+python-dotenv

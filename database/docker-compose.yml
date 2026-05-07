@@ -1,0 +1,59 @@
+version: '3.8'
+
+services:
+  # 1. CASSANDRA
+  cassandra:
+    image: cassandra:4.1
+    container_name: demo-cassandra
+    ports:
+      - "9042:9042"
+    environment:
+      - CASSANDRA_CLUSTER_NAME=DemoCluster
+      - CASSANDRA_DC=datacenter1
+      - CASSANDRA_BROADCAST_RPC_ADDRESS=127.0.0.1
+    volumes:
+      - ./cassandra/init.cql:/docker-entrypoint-initdb.d/init.cql
+    # Thêm đoạn lệnh thông minh này:
+    command: >
+      bash -c "
+      ( /usr/local/bin/docker-entrypoint.sh cassandra -f ) &
+      echo 'Đang chờ Cassandra khởi động...';
+      until cqlsh -e 'describe cluster' > /dev/null 2>&1; do
+        sleep 5;
+      done;
+      echo 'Cassandra đã sẵn sàng! Đang tự động chạy init script...';
+      cqlsh -f /docker-entrypoint-initdb.d/init.cql;
+      wait
+      "
+    restart: unless-stopped
+
+
+  # 2. POSTGRESQL
+  postgres:
+    image: postgres:15-alpine
+    container_name: demo-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: yourpassword
+      POSTGRES_DB: postgres
+    ports:
+      - "5433:5432"
+    volumes:
+      - ./postgreSQL/init.sql:/docker-entrypoint-initdb.d/init.sql
+    restart: unless-stopped
+
+  # 3. REDIS
+  redis:
+    image: redis:7-alpine
+    container_name: demo-redis
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+
+  # 4. CHROMADB
+  chromadb:
+    image: chromadb/chroma:latest
+    container_name: demo-chromadb
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
