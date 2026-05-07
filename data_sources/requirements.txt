@@ -1,0 +1,15 @@
+# Data Sources — Python dependencies
+# Install with: pip install -r requirements.txt
+
+# Alpaca — official Python SDK (news + market data WebSocket)
+alpaca-py>=0.39.0
+
+# Binance — WebSocket client + HTTP
+websocket-client>=1.7.0
+requests>=2.31.0
+
+# Google Gemini — official Gen AI SDK
+google-genai>=1.0.0
+
+# Utilities
+python-dotenv>=1.0.0   # load .env file for API keys
