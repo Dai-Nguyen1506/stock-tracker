@@ -5,36 +5,36 @@
 [![Cassandra](https://img.shields.io/badge/Cassandra-4.0-blue?style=for-the-badge&logo=apachecassandra)](https://cassandra.apache.org/)
 [![Docker](https://img.shields.io/badge/Docker-Enabled-blue?style=for-the-badge&logo=docker)](https://www.docker.com/)
 
-Một hệ thống theo dõi thị trường tài chính toàn diện, xử lý hàng vạn dữ liệu mỗi giây với độ trễ cực thấp, tích hợp Trợ lý AI (RAG) thông minh.
+A comprehensive financial market monitoring system capable of processing tens of thousands of data points per second with ultra-low latency, integrated with an intelligent AI Assistant (RAG).
 
 ---
 
-## ✨ Tính năng nổi bật
+## ✨ Key Features
 
-- 📡 **Real-time Ingestion:** Theo dõi hơn 400+ mã tiền điện tử từ **Binance** và tin tức từ **Alpaca**.
-- ⚡ **Siêu tốc với Cassandra:** Tận dụng thư viện **Acsylla (C++ Driver)** để đạt tốc độ ghi hàng vạn bản ghi trong vài mili giây.
-- 🤖 **AI Financial Assistant:** Chatbot sử dụng công nghệ **RAG (Retrieval-Augmented Generation)**, truy xuất tin tức và dữ liệu giá từ Cassandra/ChromaDB để tư vấn đầu tư.
-- 📊 **Interactive Dashboard:** Biểu đồ nến chuyên nghiệp (Lightweight Charts), Sổ lệnh (Orderbook) cập nhật từng 100ms.
-- 📈 **Performance Benchmarking:** Công cụ đo lường và so sánh trực tiếp hiệu năng giữa Cassandra và PostgreSQL.
+- 📡 **Real-time Ingestion:** Monitor 400+ cryptocurrency pairs from **Binance** and financial news streams from **Alpaca** in real time.
+- ⚡ **Ultra-fast with Cassandra:** **Leverages Acsylla (C++ Driver)** to achieve write speeds of tens of thousands of records within milliseconds
+- 🤖 **AI Financial Assistant:** An intelligent chatbot powered by **Retrieval-Augmented Generation**, retrieving news and price data from Cassandra/ChromaDB to provide investment insights.
+- 📊 **Interactive Dashboard:** Professional candlestick charts powered by Lightweight Charts and a real-time order book updating every 100ms.
+- 📈 **Performance Benchmarking:** A benchmarking tool for directly measuring and comparing the performance of Cassandra and PostgreSQL.
 
 ---
 
-## 📂 Cấu trúc Thư mục Dự án
+## 📂 Project Directory Structure
 
 ```text
 stock-tracker/
 ├── backend/
-│   ├── ingestion/             # Các worker thu thập dữ liệu (Binance, Alpaca, Discovery)
-│   ├── core/                  # Cấu hình kết nối DB (Cassandra, Postgres, Redis, VectorDB)
+│   ├── ingestion/             # Data ingestion workers (Binance, Alpaca, Discovery)
+│   ├── core/                  # Database connection configuration (Cassandra, Postgres, Redis, VectorDB)
 │   ├── routers/               # API Endpoints (Market data, AI Chatbot)
-│   └── main.py                # Điểm khởi đầu của Backend API
+│   └── main.py                # Backend API entry point
 ├── frontend/                  # ReactJS + Vite App
 │   ├── src/
 │   │   ├── components/        # Candlestick Chart, Orderbook, Chatbot, Sidebar
-│   │   └── api.js             # Client kết nối API
-├── docs/                     # Tài liệu dự án
+│   │   └── api.js             # Client API connection
+├── docs/                      # Project documentation
 │   └── PROJECT_DOCUMENTATION.md
-├── docker-compose.yml         # Orchestration cho toàn bộ dịch vụ
+├── docker-compose.yml         # Orchestration for all services
 ```
 
 ---
@@ -44,88 +44,104 @@ stock-tracker/
 - **Backend:** FastAPI, Python 3.11, Acsylla (Cassandra), Asyncpg (Postgres).
 - **Frontend:** ReactJS, Vite, TailwindCSS, Lightweight Charts.
 - **Database:**
-  - **Apache Cassandra:** Lưu trữ Time-series chính (Nến, Depth).
-  - **PostgreSQL:** Lưu trữ dữ liệu đối chứng (Benchmarking).
-  - **Redis:** Pub/Sub và Cache tốc độ cao.
-  - **ChromaDB:** Vector Database cho AI News Analysis.
+  - **Apache Cassandra:** Primary time-series storage (Candles, Depth).
+  - **PostgreSQL:** Verification data storage (Benchmarking).
+  - **Redis:** High-speed Pub/Sub and Cache.
+  - **ChromaDB:** Vector Database for AI News Analysis.
 - **API Providers:**
-  - [Binance API](https://binance-docs.github.io/apidocs/spot/en/): Dữ liệu thị trường.
-  - [Alpaca API](https://alpaca.markets/docs/): Tin tức tài chính thời gian thực.
-  - [Google Gemini API](https://ai.google.dev/): Bộ não AI.
+  - [Binance API](https://binance-docs.github.io/apidocs/spot/en/): Market data.
+  - [Alpaca API](https://alpaca.markets/docs/): Real-time financial news.
+  - [Google Gemini API](https://ai.google.dev/): AI brain.
 
 ---
 
-## 🚀 Cài đặt & Khởi chạy
+## 🚀 Installation & Setup
 
-Dự án được đóng gói hoàn toàn bằng Docker, bạn chỉ cần một câu lệnh để khởi chạy toàn bộ hệ thống.
+The project is completely packaged with Docker, you only need one command to launch the entire system.
 
-### 1. Clone dự án
+### 1. Clone the project
 ```bash
 git clone https://github.com/Dai-Nguyen1506/stock-tracker.git
 cd stock-tracker
 ```
 
-### 2. Cấu hình biến môi trường
-Copy file `.env.example` thành `.env` và điền các API Key của bạn (Xem hướng dẫn lấy Key bên dưới).
+### 2. Configure environment variables
+Copy `.env.example` to `.env` and fill in your API Keys (See the guide to get Keys below).
 ```bash
 cp .env.example .env
 ```
 
-### 3. Khởi chạy với Docker
+### 3. Launch with Docker
 ```bash
 docker compose up -d --build
 ```
-Truy cập: `http://localhost:5173`
+Access: `http://localhost:5173`
+
+### 4. Stop Docker Services
+To stop all services:
+```bash
+docker compose stop
+```
+
+To stop and remove all containers:
+```bash
+docker compose down
+```
+
+To remove all containers, volumes, and images:
+```bash
+docker compose down -v
+```
 
 ---
 
-## 📖 Hướng dẫn sử dụng
+## 📖 Usage Guide
 
-### 1. Xem biểu đồ & Thay đổi khung thời gian
-- Sử dụng bảng **Control** phía bên phải để chọn mã giao dịch (Symbol) và khung thời gian (1m, 5m, 1h...).
-- Biểu đồ nến và Sổ lệnh (Depth Chart) sẽ tự động cập nhật thời gian thực qua WebSocket.
+### 1. View Charts & Change Timeframes
+- Use the **Control** panel on the right to select trading symbols and timeframes (1m, 5m, 1h, etc.).
+- Candlestick charts and Order Book (Depth Chart) will automatically update in real-time via WebSocket.
 
-### 2. Truy xuất lịch sử (Infinite Scroll)
-- **Kéo biểu đồ sang trái:** Khi bạn kéo biểu đồ về quá khứ, hệ thống sẽ tự động gọi API lấy dữ liệu từ Cassandra.
-- **Auto-Backfill:** Nếu Cassandra thiếu dữ liệu, hệ thống tự gọi Binance API để bù đắp và lưu lại vào DB một cách âm thầm.
+### 2. Retrieve History (Infinite Scroll)
+- **Drag the chart to the left:** When you drag the chart into the past, the system will automatically call the API to fetch data from Cassandra.
+- **Auto-Backfill:** If Cassandra lacks data, the system calls the Binance API to backfill and save to the database silently.
 
-### 3. Trợ lý AI (Financial Chatbot)
-- Nhập câu hỏi vào ô chat (Ví dụ: "Tình hình BTC hôm nay thế nào?").
-- AI sẽ tự động lục tìm tin tức trong ChromaDB và lấy giá mới nhất từ Cassandra để đưa ra nhận định.
+### 3. AI Assistant (Financial Chatbot)
+- Enter a question in the chat box (Example: "What's the status of BTC today?").
+- The AI will automatically search for news in ChromaDB and fetch the latest prices from Cassandra to provide insights.
 
-### 4. Dashboard Hiệu năng (Sidebar)
-- Quan sát 5 ô thông số trên cùng để biết tốc độ Ghi/Đọc hiện tại của hệ thống.
-- Sử dụng mục **DB Dashboard** để chạy các bài test `Ping` (Đo tốc độ Đọc) hoặc `Copy` (Đo tốc độ Ghi) trực tiếp.
+### 4. Performance Dashboard (Sidebar)
+- Observe 5 metrics at the top to know the current Read/Write speed of the system.
+- Use the **DB Dashboard** section to run test cases `Ping` (Measure Read speed) or `Copy` (Measure Write speed) directly.
 
 ---
 
-## 🔑 Hướng dẫn lấy API Keys
+## 🔑 API Key Configuration Guide
 
-Hệ thống yêu cầu 2 loại Key chính để hoạt động đầy đủ tính năng:
+The system requires 2 main types of Keys to operate with full features:
 
-### 1. Alpaca API Key (Tin tức thị trường)
-- Truy cập [Alpaca Markets](https://alpaca.markets/) và đăng ký tài khoản (Free).
-- Vào mục **Dashboard** -> **Generate New API Key**.
-- Bạn sẽ nhận được `API Key ID` và `Secret Key`. Hãy điền chúng vào `.env`.
+### 1. Alpaca API Key (Market News)
+- Visit [Alpaca Markets](https://alpaca.markets/) and register an account (Free).
+- Go to **Dashboard** -> **Generate New API Key**.
+- You will receive `API Key ID` and `Secret Key`. Fill them in `.env`.
 
-### 2. Google Gemini API Key (Bộ não AI)
-- Truy cập [Google AI Studio](https://aistudio.google.com/).
-- Nhấn vào nút **Get API Key**.
-### 3. Thông tin Cơ sở dữ liệu (Mặc định)
-Các thông số này đã được cấu hình sẵn trong `docker-compose.yml`. Nếu bạn chạy trực tiếp trên máy (không qua Docker), hãy điền các giá trị sau vào `.env`:
+### 2. Google Gemini API Key (AI Brain)
+- Visit [Google AI Studio](https://aistudio.google.com/).
+- Click the **Get API Key** button.
+### 3. Database Configuration (Default)
+These parameters are pre-configured in `docker-compose.yml`. If you run directly on your machine (not via Docker), fill in the following values in `.env`:
 
 - **PostgreSQL:** `postgresql://user:password@localhost:5432/market_data`
-- **Cassandra:** Host là `localhost`, Port `9042`.
+- **Cassandra:** Host is `localhost`, Port `9042`.
 - **Redis:** `redis://localhost:6379`
 - **ChromaDB:** Host `localhost`, Port `8000`.
 
 ---
 
-## 📞 Liên hệ & Đóng góp
-Nếu bạn gặp bất kỳ vấn đề gì hoặc muốn đóng góp tính năng mới, vui lòng tạo **Issue** hoặc gửi **Pull Request**.
+## 📞 Contact & Contributions
+If you encounter any issues or want to contribute new features, please create an **Issue** or submit a **Pull Request**.
 
 - **Author:** Dai Nguyen
 - **Repo:** [Dai-Nguyen1506/stock-tracker](https://github.com/Dai-Nguyen1506/stock-tracker)
 
 ---
-*Lưu ý: Dự án này phục vụ mục đích học tập và nghiên cứu về hệ thống dữ liệu lớn (Big Data) và AI. Hãy cẩn trọng khi sử dụng trong giao dịch thực tế.*
+*Note: This project is for learning and research purposes on Big Data systems and AI. Be careful when using it in real trading.*
