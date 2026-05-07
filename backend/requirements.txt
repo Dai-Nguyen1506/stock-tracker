@@ -4,21 +4,22 @@ fastapi==0.110.0
 uvicorn[standard]==0.27.1
 websockets>=11.0.3,<12.0.0
 
-# --- Databases (The Core) ---
-# Acsylla 1.0.2 là bản ổn định nhất hiện tại, tránh lỗi build 0.3.2
+# --- Databases (Core Infrastructure) ---
+# Acsylla 1.0.2 is currently the most stable version; avoids build issues found in 0.3.2
 acsylla==1.0.2
 redis==5.0.3
 
-# Cần thiết để thao tác với dữ liệu
+# Required for data processing and manipulation
 pandas==2.2.1
 
 # --- Financial Data Sources ---
 python-binance==1.0.19
 alpaca-py==0.17.0
-# Thư viện HTTP hiện đại hỗ trợ Async hoàn hảo cho FastAPI
+
+# Modern HTTP library with excellent async support for FastAPI
 httpx==0.27.0
 
-# --- AI & RAG Ready ---
+# --- AI & RAG Support ---
 chromadb==0.4.24
 sentence-transformers==2.5.1
 google-generativeai==0.5.2
