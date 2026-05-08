@@ -17,10 +17,11 @@ class NewsService:
 
     async def get_news_history(self, symbol: str, limit: int, before_ts: int = None, year: int = None, month: int = None) -> tuple:
         """
-        Retrieves news for a target month.
+        Retrieves news for a target month with Redis ZSET caching.
         If year and month are provided, they take precedence.
         Otherwise, before_ts or current time is used.
         """
+        import json
         try:
             if year and month:
                 target_year = year
@@ -35,10 +36,39 @@ class NewsService:
                 target_year = target_dt.year
                 target_month = target_dt.month
             
-            results = await self._fetch_month_from_cassandra(symbol, target_year, target_month, before_ts)
-            results = sorted(results, key=lambda x: x["timestamp"], reverse=True)[:limit]
+            redis_client = get_redis()
+            zset_key = f"news:zset:{symbol}"
+            cache_flag_key = f"news:cached_month:{symbol}:{target_year}:{target_month}"
 
+            # Check cache flag
+            is_cached = await redis_client.get(cache_flag_key)
+            
             first_day = datetime(target_year, target_month, 1, tzinfo=timezone.utc)
+            min_score = int(first_day.timestamp() * 1000)
+            max_score = before_ts if before_ts else "+inf"
+
+            if is_cached:
+                logger.debug(f"[News] Cache hit for {symbol} ({target_year}-{target_month})")
+                raw_results = await redis_client.zrevrangebyscore(zset_key, max_score, min_score, start=0, num=limit)
+                results = [json.loads(item) for item in raw_results]
+            else:
+                logger.info(f"[News] Cache miss for {symbol} ({target_year}-{target_month}), fetching from DB")
+                results = await self._fetch_month_from_cassandra(symbol, target_year, target_month, before_ts=None)
+                
+                if results:
+                    pipeline = redis_client.pipeline()
+                    for item in results:
+                        item_json = json.dumps(item)
+                        pipeline.zadd(zset_key, {item_json: item["timestamp"]})
+                    
+                    pipeline.expire(zset_key, 172800) # 48 hours
+                    pipeline.setex(cache_flag_key, 172800, "1") # 48 hours expiration
+                    await pipeline.execute()
+
+                if before_ts:
+                    results = [r for r in results if r["timestamp"] <= before_ts]
+                results = sorted(results, key=lambda x: x["timestamp"], reverse=True)[:limit]
+
             prev_month_dt = first_day - timedelta(days=1)
             
             asyncio.create_task(self._ensure_month_data(symbol, prev_month_dt.year, prev_month_dt.month))
@@ -206,8 +236,14 @@ class NewsService:
 
     async def backfill_news(self, symbol: str, news_list: list):
         """
-        Saves news to both Cassandra and ChromaDB.
+        Saves news to Cassandra, ChromaDB, and pushes live updates to Redis ZSET.
         """
+        import json
+        redis_client = get_redis()
+        zset_key = f"news:zset:{symbol}"
+        pipeline = redis_client.pipeline()
+        has_new = False
+        
         for n in news_list:
             try:
                 dt_utc = datetime.fromisoformat(n['created_at'].replace('Z', '+00:00'))
@@ -224,6 +260,17 @@ class NewsService:
                     n.get('url', '')
                 )
                 
+                # Push to Redis ZSET for live updates
+                item_dict = {
+                    "timestamp": ts,
+                    "headline": n.get('headline', ''),
+                    "url": n.get('url', ''),
+                    "symbol": symbol
+                }
+                item_json = json.dumps(item_dict)
+                pipeline.zadd(zset_key, {item_json: ts})
+                has_new = True
+                
                 asyncio.create_task(push_to_ai_vector_embedder(
                     symbol, 
                     n.get('headline', ''), 
@@ -234,3 +281,10 @@ class NewsService:
                 ))
             except Exception as e:
                 logger.error(f"[News] Backfill item failed: {e}")
+
+        if has_new:
+            try:
+                pipeline.expire(zset_key, 172800)
+                await pipeline.execute()
+            except Exception as e:
+                logger.error(f"[News] ZSET push failed during backfill: {e}")
