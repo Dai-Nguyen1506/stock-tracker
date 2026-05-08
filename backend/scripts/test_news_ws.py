@@ -4,7 +4,10 @@ import time
 import redis.asyncio as redis
 import sys
 import os
-
+"""
+Test:
+docker-compose exec backend python scripts/test_news_ws.py BTC "test news"
+"""
 # Add backend to path to use config
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from core.config import settings

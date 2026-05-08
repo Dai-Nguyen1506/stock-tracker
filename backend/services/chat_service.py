@@ -1,5 +1,6 @@
 import os
 import json
+import re
 from datetime import datetime, timezone, timedelta
 import google.generativeai as genai
 from core.cassandra import get_session
@@ -104,20 +105,28 @@ class ChatService:
         base_symbol = full_symbol.replace("USDT", "")
         current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
-        month_map = {
-            "tháng 1": 1, "tháng 2": 2, "tháng 3": 3, "tháng 4": 4, "tháng 5": 5, "tháng 6": 6,
-            "tháng 7": 7, "tháng 8": 8, "tháng 9": 9, "tháng 10": 10, "tháng 11": 11, "tháng 12": 12,
-            "january": 1, "february": 2, "march": 3, "april": 4, "may": 5, "june": 6,
-            "july": 7, "august": 8, "september": 9, "october": 10, "november": 11, "december": 12
-        }
-        
         target_month = None
         target_year = datetime.now().year
         query_lower = query.lower()
-        for m_name, m_val in month_map.items():
-            if m_name in query_lower:
-                target_month = m_val
-                break
+
+        vn_match = re.search(r'th[aá]ng\s*0?([1-9]|1[0-2])(?:[\s/]+(?:n[aă]m\s*)?(20\d{2}))?\b', query_lower)
+        if vn_match:
+            target_month = int(vn_match.group(1))
+            if vn_match.group(2):
+                target_year = int(vn_match.group(2))
+        else:
+            en_months = {
+                "january": 1, "february": 2, "march": 3, "april": 4, "may": 5, "june": 6,
+                "july": 7, "august": 8, "september": 9, "october": 10, "november": 11, "december": 12,
+                "jan": 1, "feb": 2, "mar": 3, "apr": 4, "jun": 6, "jul": 7, "aug": 8, "sep": 9, "oct": 10, "nov": 11, "dec": 12
+            }
+            for m_name, m_val in en_months.items():
+                en_match = re.search(r'\b' + m_name + r'\b(?:[\s/]+(20\d{2}))?', query_lower)
+                if en_match:
+                    target_month = m_val
+                    if en_match.group(1):
+                        target_year = int(en_match.group(1))
+                    break
         
         collection = get_news_collection()
         context_news = "No new news found."
